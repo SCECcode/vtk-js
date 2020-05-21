@@ -16,7 +16,7 @@ function vtkResliceCursor(publicAPI, model) {
   // Set our className
   model.classHierarchy.push('vtkResliceCursor');
 
-  const superClass = Object.assign({}, publicAPI);
+  const superClass = { ...publicAPI };
 
   function projectCenterToFitBounds(center, bounds) {
     if (
@@ -53,7 +53,7 @@ function vtkResliceCursor(publicAPI, model) {
       cellsData[0] = 2;
       cellsData[1] = 0;
       cellsData[2] = 1;
-      model.centerlinesAxis[i].setPolys(cells);
+      model.centerlinesAxis[i].setLines(cells);
     }
   };
 
@@ -118,6 +118,10 @@ function vtkResliceCursor(publicAPI, model) {
     vtkMath.cross(normals[0], normals[1], model.zAxis);
     vtkMath.cross(normals[1], normals[2], model.xAxis);
     vtkMath.cross(normals[2], normals[0], model.yAxis);
+
+    vtkMath.normalize(model.xAxis);
+    vtkMath.normalize(model.yAxis);
+    vtkMath.normalize(model.zAxis);
   };
 
   // Reset cursor to its initial position
@@ -189,7 +193,8 @@ function vtkResliceCursor(publicAPI, model) {
           newCenter[2] > bounds[5])
       ) {
         return;
-      } else if (centerProjectionType === CenterProjectionType.FIT_BOUNDS) {
+      }
+      if (centerProjectionType === CenterProjectionType.FIT_BOUNDS) {
         newCenter = projectCenterToFitBounds(newCenter, bounds);
 
         if (newCenter.length !== 3) {
@@ -215,7 +220,8 @@ function vtkResliceCursor(publicAPI, model) {
   publicAPI.getAxis = (i) => {
     if (i === 0) {
       return model.xAxis;
-    } else if (i === 1) {
+    }
+    if (i === 1) {
       return model.yAxis;
     }
 

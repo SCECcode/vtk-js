@@ -1,7 +1,7 @@
-import macro from 'vtk.js/Sources/macro';
+import * as macro from 'vtk.js/Sources/macro';
 import vtkPolyData from 'vtk.js/Sources/Common/DataModel/PolyData';
 
-const { vtkErrorMacro } = macro;
+const { vtkErrorMacro, TYPED_ARRAYS } = macro;
 
 // ----------------------------------------------------------------------------
 // vtkCutter methods
@@ -12,7 +12,7 @@ function vtkCutter(publicAPI, model) {
   model.classHierarchy.push('vtkCutter');
 
   // Capture "parentClass" api for internal use
-  const superClass = Object.assign({}, publicAPI);
+  const superClass = { ...publicAPI };
 
   publicAPI.getMTime = () => {
     let mTime = superClass.getMTime();
@@ -209,19 +209,19 @@ function vtkCutter(publicAPI, model) {
 
     // Set points
     const outputPoints = output.getPoints();
-    outputPoints.setData(newPointsData);
-    if (outputPoints.getNumberOfComponents !== 3) {
-      outputPoints.setNumberOfComponents(3);
-    }
+    outputPoints.setData(
+      TYPED_ARRAYS[points.getDataType()].from(newPointsData),
+      3
+    );
 
     // Set lines
     if (newLinesData.length !== 0) {
-      output.getLines().setData(newLinesData);
+      output.getLines().setData(Uint16Array.from(newLinesData));
     }
 
     // Set polys
     if (newPolysData.length !== 0) {
-      output.getPolys().setData(newPolysData);
+      output.getPolys().setData(Uint16Array.from(newPolysData));
     }
   }
 

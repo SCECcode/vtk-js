@@ -82,9 +82,9 @@ function vtkCircleContextRepresentation(publicAPI, model) {
 
   vtkWidgetRepresentation.connectPipeline(model.pipelines.circle);
 
-  model.actors.push(model.pipelines.circle.actor);
+  publicAPI.addActor(model.pipelines.circle.actor);
 
-  model.tranform = vtkMatrixBuilder.buildFromDegree();
+  model.transform = vtkMatrixBuilder.buildFromDegree();
 
   // --------------------------------------------------------------------------
 

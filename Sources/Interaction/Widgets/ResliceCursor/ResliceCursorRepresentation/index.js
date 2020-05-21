@@ -179,10 +179,7 @@ function vtkResliceCursorRepresentation(publicAPI, model) {
     }
 
     // Calculate appropriate pixel spacing for the reslicing
-    const spacing = publicAPI
-      .getResliceCursor()
-      .getImage()
-      .getSpacing();
+    const spacing = publicAPI.getResliceCursor().getImage().getSpacing();
 
     const plane = publicAPI
       .getResliceCursor()
@@ -393,10 +390,7 @@ function vtkResliceCursorRepresentation(publicAPI, model) {
     if (!publicAPI.getResliceCursor()) {
       return;
     }
-    const bounds = publicAPI
-      .getResliceCursor()
-      .getImage()
-      .getBounds();
+    const bounds = publicAPI.getResliceCursor().getImage().getBounds();
 
     const absT1 = t1.map((val) => Math.abs(val));
     const absT2 = t2.map((val) => Math.abs(val));
@@ -478,7 +472,11 @@ export function extend(publicAPI, model, initialValues = {}) {
   model.newResliceAxes = mat4.create();
   model.imageActor = vtkImageSlice.newInstance();
   model.imageMapper = vtkImageMapper.newInstance();
-
+  model.imageMapper.setResolveCoincidentTopologyToPolygonOffset();
+  model.imageMapper.setRelativeCoincidentTopologyPolygonOffsetParameters(
+    1.0,
+    1.0
+  );
   model.planeInitialized = false;
 
   macro.setGet(publicAPI, model, [

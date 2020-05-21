@@ -8,9 +8,10 @@ import vtkOpenGLTexture from 'vtk.js/Sources/Rendering/OpenGL/Texture';
 import vtkProperty from 'vtk.js/Sources/Rendering/Core/Property';
 import vtkShaderProgram from 'vtk.js/Sources/Rendering/OpenGL/ShaderProgram';
 import vtkViewNode from 'vtk.js/Sources/Rendering/SceneGraph/ViewNode';
-
 import vtkPolyDataVS from 'vtk.js/Sources/Rendering/OpenGL/glsl/vtkPolyDataVS.glsl';
 import vtkPolyDataFS from 'vtk.js/Sources/Rendering/OpenGL/glsl/vtkPolyDataFS.glsl';
+
+import vtkReplacementShaderMapper from 'vtk.js/Sources/Rendering/OpenGL/ReplacementShaderMapper';
 
 /* eslint-disable no-lonely-if */
 
@@ -29,7 +30,6 @@ const { Representation, Shading } = vtkProperty;
 const { ScalarMode } = vtkMapper;
 const { Filter, Wrap } = vtkOpenGLTexture;
 const { vtkErrorMacro } = macro;
-
 const StartEvent = { type: 'StartEvent' };
 const EndEvent = { type: 'EndEvent' };
 
@@ -197,7 +197,7 @@ function vtkOpenGLPolyDataMapper(publicAPI, model) {
 
     // now handle the more complex fragment shader implementation
     // the following are always defined variables.  We start
-    // by assiging a default value from the uniform
+    // by assigning a default value from the uniform
     let colorImpl = [
       'vec3 ambientColor;',
       '  vec3 diffuseColor;',
@@ -641,11 +641,11 @@ function vtkOpenGLPolyDataMapper(publicAPI, model) {
         '//VTK::PositionVC::Impl',
         [
           'vertexVCVSOutput = MCVCMatrix * vertexMC;',
-          '  gl_Position = MCDCMatrix * vertexMC;',
+          '  gl_Position = MCPCMatrix * vertexMC;',
         ]
       ).result;
       VSSource = vtkShaderProgram.substitute(VSSource, '//VTK::Camera::Dec', [
-        'uniform mat4 MCDCMatrix;',
+        'uniform mat4 MCPCMatrix;',
         'uniform mat4 MCVCMatrix;',
       ]).result;
       GSSource = vtkShaderProgram.substitute(
@@ -670,12 +670,12 @@ function vtkOpenGLPolyDataMapper(publicAPI, model) {
       ).result;
     } else {
       VSSource = vtkShaderProgram.substitute(VSSource, '//VTK::Camera::Dec', [
-        'uniform mat4 MCDCMatrix;',
+        'uniform mat4 MCPCMatrix;',
       ]).result;
       VSSource = vtkShaderProgram.substitute(
         VSSource,
         '//VTK::PositionVC::Impl',
-        ['  gl_Position = MCDCMatrix * vertexMC;']
+        ['  gl_Position = MCPCMatrix * vertexMC;']
       ).result;
     }
     shaders.Vertex = VSSource;
@@ -923,75 +923,6 @@ function vtkOpenGLPolyDataMapper(publicAPI, model) {
     return cp;
   };
 
-  publicAPI.replaceShaderCoincidentOffset = (shaders, ren, actor) => {
-    const cp = publicAPI.getCoincidentParameters(ren, actor);
-
-    // if we need an offset handle it here
-    // The value of .000016 is suitable for depth buffers
-    // of at least 16 bit depth. We do not query the depth
-    // right now because we would need some mechanism to
-    // cache the result taking into account FBO changes etc.
-    if (cp && (cp.factor !== 0.0 || cp.offset !== 0.0)) {
-      let FSSource = shaders.Fragment;
-
-      FSSource = vtkShaderProgram.substitute(
-        FSSource,
-        '//VTK::Coincident::Dec',
-        ['uniform float cfactor;', 'uniform float coffset;']
-      ).result;
-
-      if (model.context.getExtension('EXT_frag_depth')) {
-        if (cp.factor !== 0.0) {
-          FSSource = vtkShaderProgram.substitute(
-            FSSource,
-            '//VTK::UniformFlow::Impl',
-            [
-              'float cscale = length(vec2(dFdx(gl_FragCoord.z),dFdy(gl_FragCoord.z)));',
-              '//VTK::UniformFlow::Impl',
-            ],
-            false
-          ).result;
-          FSSource = vtkShaderProgram.substitute(
-            FSSource,
-            '//VTK::Depth::Impl',
-            'gl_FragDepthEXT = gl_FragCoord.z + cfactor*cscale + 0.000016*coffset;'
-          ).result;
-        } else {
-          FSSource = vtkShaderProgram.substitute(
-            FSSource,
-            '//VTK::Depth::Impl',
-            'gl_FragDepthEXT = gl_FragCoord.z + 0.000016*coffset;'
-          ).result;
-        }
-      }
-      if (model.openGLRenderWindow.getWebgl2()) {
-        if (cp.factor !== 0.0) {
-          FSSource = vtkShaderProgram.substitute(
-            FSSource,
-            '//VTK::UniformFlow::Impl',
-            [
-              'float cscale = length(vec2(dFdx(gl_FragCoord.z),dFdy(gl_FragCoord.z)));',
-              '//VTK::UniformFlow::Impl',
-            ],
-            false
-          ).result;
-          FSSource = vtkShaderProgram.substitute(
-            FSSource,
-            '//VTK::Depth::Impl',
-            'gl_FragDepth = gl_FragCoord.z + cfactor*cscale + 0.000016*coffset;'
-          ).result;
-        } else {
-          FSSource = vtkShaderProgram.substitute(
-            FSSource,
-            '//VTK::Depth::Impl',
-            'gl_FragDepth = gl_FragCoord.z + 0.000016*coffset;'
-          ).result;
-        }
-      }
-      shaders.Fragment = FSSource;
-    }
-  };
-
   publicAPI.replaceShaderPicking = (shaders, ren, actor) => {
     let FSSource = shaders.Fragment;
     FSSource = vtkShaderProgram.substitute(FSSource, '//VTK::Picking::Dec', [
@@ -1061,7 +992,7 @@ function vtkOpenGLPolyDataMapper(publicAPI, model) {
     } else if (!flat && mode === model.context.LINES) {
       needLighting = true;
     }
-    // 5) everthing else is unlit
+    // 5) everything else is unlit
 
     // do we need lighting?
     if (actor.getProperty().getLighting() && needLighting) {
@@ -1490,47 +1421,74 @@ function vtkOpenGLPolyDataMapper(publicAPI, model) {
     }
   };
 
+  function safeMatrixMultiply(matrixArray, matrixType, tmpMat) {
+    matrixType.identity(tmpMat);
+    return matrixArray.reduce((res, matrix, index) => {
+      if (index === 0) {
+        return matrix ? matrixType.copy(res, matrix) : matrixType.identity(res);
+      }
+      return matrix ? matrixType.multiply(res, res, matrix) : res;
+    }, tmpMat);
+  }
+
   publicAPI.setCameraShaderParameters = (cellBO, ren, actor) => {
     const program = cellBO.getProgram();
 
-    // // [WMVD]C == {world, model, view, display} coordinates
-    // // E.g., WCDC == world to display coordinate transformation
+    // [WMVP]C == {world, model, view, projection} coordinates
+    // E.g., WCPC == world to projection coordinate transformation
     const keyMats = model.openGLCamera.getKeyMatrices(ren);
     const cam = ren.getActiveCamera();
 
     const camm = model.openGLCamera.getKeyMatrixTime().getMTime();
     const progm = program.getLastCameraMTime();
 
+    const shiftScaleEnabled = cellBO.getCABO().getCoordShiftAndScaleEnabled();
+    const inverseShiftScaleMatrix = shiftScaleEnabled
+      ? cellBO.getCABO().getInverseShiftAndScaleMatrix()
+      : null;
+
+    const actorIsIdentity = actor.getIsIdentity();
+    const actMats = actorIsIdentity
+      ? { mcwc: null, normalMatrix: null }
+      : model.openGLActor.getKeyMatrices();
+
+    program.setUniformMatrix(
+      'MCPCMatrix',
+      safeMatrixMultiply(
+        [keyMats.wcpc, actMats.mcwc, inverseShiftScaleMatrix],
+        mat4,
+        model.tmpMat4
+      )
+    );
+    if (program.isUniformUsed('MCVCMatrix')) {
+      program.setUniformMatrix(
+        'MCVCMatrix',
+        safeMatrixMultiply(
+          [keyMats.wcvc, actMats.mcwc, inverseShiftScaleMatrix],
+          mat4,
+          model.tmpMat4
+        )
+      );
+    }
+    if (program.isUniformUsed('normalMatrix')) {
+      program.setUniformMatrix3x3(
+        'normalMatrix',
+        safeMatrixMultiply(
+          [keyMats.normalMatrix, actMats.normalMatrix],
+          mat3,
+          model.tmpMat3
+        )
+      );
+    }
+
     if (progm !== camm) {
-      if (actor.getIsIdentity()) {
-        program.setUniformMatrix('MCDCMatrix', keyMats.wcdc);
-        if (program.isUniformUsed('MCVCMatrix')) {
-          program.setUniformMatrix('MCVCMatrix', keyMats.wcvc);
-        }
-        if (program.isUniformUsed('normalMatrix')) {
-          program.setUniformMatrix3x3('normalMatrix', keyMats.normalMatrix);
-        }
-      }
       if (program.isUniformUsed('cameraParallel')) {
         program.setUniformi('cameraParallel', cam.getParallelProjection());
       }
       program.setLastCameraMTime(camm);
     }
 
-    if (!actor.getIsIdentity()) {
-      const actMats = model.openGLActor.getKeyMatrices();
-      if (program.isUniformUsed('normalMatrix')) {
-        const anorms = mat3.create();
-        mat3.multiply(anorms, keyMats.normalMatrix, actMats.normalMatrix);
-        program.setUniformMatrix3x3('normalMatrix', anorms);
-      }
-      mat4.identity(model.tmpMat4);
-      mat4.multiply(model.tmpMat4, keyMats.wcdc, actMats.mcwc);
-      program.setUniformMatrix('MCDCMatrix', model.tmpMat4);
-      if (program.isUniformUsed('MCVCMatrix')) {
-        mat4.multiply(model.tmpMat4, keyMats.wcvc, actMats.mcwc);
-        program.setUniformMatrix('MCVCMatrix', model.tmpMat4);
-      }
+    if (!actorIsIdentity) {
       // reset the cam mtime as actor modified the shader values
       program.setLastCameraMTime(0);
     }
@@ -1636,6 +1594,8 @@ function vtkOpenGLPolyDataMapper(publicAPI, model) {
       actor.getProperty().getEdgeVisibility() &&
       representation === Representation.SURFACE;
 
+    gl.lineWidth(actor.getProperty().getLineWidth());
+
     // for every primitive type
     for (let i = primTypes.Start; i < primTypes.End; i++) {
       // if there are entries
@@ -1645,15 +1605,18 @@ function vtkOpenGLPolyDataMapper(publicAPI, model) {
         model.drawingEdges =
           drawSurfaceWithEdges &&
           (i === primTypes.TrisEdges || i === primTypes.TriStripsEdges);
-        publicAPI.updateShaders(model.primitives[i], ren, actor);
         const mode = publicAPI.getOpenGLMode(representation, i);
-        gl.drawArrays(mode, 0, cabo.getElementCount());
-
+        if (!model.drawingEdges || !model.renderDepth) {
+          publicAPI.updateShaders(model.primitives[i], ren, actor);
+          gl.drawArrays(mode, 0, cabo.getElementCount());
+        }
         const stride =
           (mode === gl.POINTS ? 1 : 0) || (mode === gl.LINES ? 2 : 3);
         model.primitiveIDOffset += cabo.getElementCount() / stride;
       }
     }
+    // reset the line width
+    gl.lineWidth(1);
   };
 
   publicAPI.getOpenGLMode = (rep, type) => {
@@ -1939,10 +1902,16 @@ export function extend(publicAPI, model, initialValues = {}) {
 
   // Inheritance
   vtkViewNode.extend(publicAPI, model, initialValues);
+  vtkReplacementShaderMapper.implementReplaceShaderCoincidentOffset(
+    publicAPI,
+    model,
+    initialValues
+  );
 
   model.primitives = [];
   model.primTypes = primTypes;
 
+  model.tmpMat3 = mat3.create();
   model.tmpMat4 = mat4.create();
 
   for (let i = primTypes.Start; i < primTypes.End; i++) {

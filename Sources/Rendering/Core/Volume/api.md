@@ -4,7 +4,7 @@ vtk-js includes support for volume rendering using
 hardware GPU acceleration. The capabilities may change 
 over time but as of this writing it includes support for
 
-- single component data
+- multi-component data
 - at least 24 bits linear resolution
 - support for all native data types, 16 bit, float, etc
 - opacity transfer functions
@@ -65,7 +65,7 @@ support an RGB value at each point.
 The main methods you will interact with on Volume are
 the set/getProperty and set/getMapper to work with the
 VolumeProperty and VolumeMapper classes respectively.
-As a convinience getProperty() will instantiate a 
+As a convenience getProperty() will instantiate a 
 VolumeProperty if one does not already exist.
 
 ## See Also

@@ -30,7 +30,7 @@ function vtkLookupTableProxy(publicAPI, model) {
     }
   };
 
-  // Takes an array of points [x, r, g, b]
+  // Takes an array of points [x, r, g, b, m=0.5, s=0.0]
   publicAPI.setRGBPoints = (rgbPoints) => {
     if (model.rgbPoints !== rgbPoints) {
       model.rgbPoints = (rgbPoints || Defaults.RGBPoints).slice();
@@ -38,7 +38,7 @@ function vtkLookupTableProxy(publicAPI, model) {
     }
   };
 
-  // Takes an array of points [x, h, s, v]
+  // Takes an array of points [x, h, s, v, m=0.5, s=0.0]
   publicAPI.setHSVPoints = (hsvPoints) => {
     if (model.hsvPoints !== hsvPoints) {
       model.hsvPoints = (hsvPoints || Defaults.HSVPoints).slice();
@@ -64,22 +64,25 @@ function vtkLookupTableProxy(publicAPI, model) {
   publicAPI.applyMode = () => {
     switch (model.mode) {
       case Mode.Preset:
-        model.lookupTable.applyColorMap(
-          vtkColorMaps.getPresetByName(model.presetName)
-        );
+        {
+          const preset = vtkColorMaps.getPresetByName(model.presetName);
+          if (preset) {
+            model.lookupTable.applyColorMap(preset);
+          }
+        }
         break;
 
       case Mode.RGBPoints:
         model.lookupTable.removeAllPoints();
         model.rgbPoints.forEach((point) =>
-          model.lookupTable.addRGBPoint(...point)
+          model.lookupTable.addRGBPointLong(...point)
         );
         break;
 
       case Mode.HSVPoints:
         model.lookupTable.removeAllPoints();
         model.hsvPoints.forEach((point) =>
-          model.lookupTable.addHSVPoint(...point)
+          model.lookupTable.addHSVPointLong(...point)
         );
         break;
 

@@ -19,16 +19,18 @@ function vtkImageData(publicAPI, model) {
   publicAPI.setExtent = (...inExtent) => {
     if (model.deleted) {
       vtkErrorMacro('instance deleted - cannot call any method');
-      return;
+      return false;
     }
 
-    if (!inExtent || inExtent.length !== 6) {
-      return;
+    const extentArray = inExtent.length === 1 ? inExtent[0] : inExtent;
+
+    if (extentArray.length !== 6) {
+      return false;
     }
 
     let changeDetected = false;
     model.extent.forEach((item, index) => {
-      if (item !== inExtent[index]) {
+      if (item !== extentArray[index]) {
         if (changeDetected) {
           return;
         }
@@ -37,12 +39,13 @@ function vtkImageData(publicAPI, model) {
     });
 
     if (changeDetected) {
-      model.extent = [].concat(inExtent);
+      model.extent = extentArray.slice();
       model.dataDescription = vtkStructuredData.getDataDescriptionFromExtent(
         model.extent
       );
       publicAPI.modified();
     }
+    return changeDetected;
   };
 
   publicAPI.setDimensions = (...dims) => {
@@ -231,6 +234,7 @@ function vtkImageData(publicAPI, model) {
     return bounds;
   };
 
+  // Internal, shouldn't need to call this manually.
   publicAPI.computeTransforms = () => {
     const trans = vec3.fromValues(
       model.origin[0],
@@ -276,7 +280,12 @@ function vtkImageData(publicAPI, model) {
 
     let array = args;
     // allow an array passed as a single arg.
-    if (array.length === 1 && Array.isArray(array[0])) {
+    if (
+      array.length === 1 &&
+      (Array.isArray(array[0]) ||
+        array[0].constructor === Float32Array ||
+        array[0].constructor === Float64Array)
+    ) {
       array = array[0];
     }
 
@@ -305,6 +314,31 @@ function vtkImageData(publicAPI, model) {
   // this is the fast version, requires vec3 arguments
   publicAPI.indexToWorldVec3 = (vin, vout) => {
     vec3.transformMat4(vout, vin, model.indexToWorld);
+    return vout;
+  };
+
+  // slow version for generic arrays
+  publicAPI.indexToWorld = (ain, aout = []) => {
+    const vin = vec3.fromValues(ain[0], ain[1], ain[2]);
+    const vout = vec3.create();
+    vec3.transformMat4(vout, vin, model.indexToWorld);
+    vec3.copy(aout, vout);
+    return aout;
+  };
+
+  // this is the fast version, requires vec3 arguments
+  publicAPI.worldToIndexVec3 = (vin, vout) => {
+    vec3.transformMat4(vout, vin, model.worldToIndex);
+    return vout;
+  };
+
+  // slow version for generic arrays
+  publicAPI.worldToIndex = (ain, aout = []) => {
+    const vin = vec3.fromValues(ain[0], ain[1], ain[2]);
+    const vout = vec3.create();
+    vec3.transformMat4(vout, vin, model.worldToIndex);
+    vec3.copy(aout, vout);
+    return aout;
   };
 
   publicAPI.indexToWorldBounds = (bin, bout = []) => {
@@ -322,19 +356,6 @@ function vtkImageData(publicAPI, model) {
     return bout;
   };
 
-  // slow version for generic arrays
-  publicAPI.indexToWorld = (ain, aout) => {
-    const vin = vec3.fromValues(ain[0], ain[1], ain[2]);
-    const vout = vec3.create();
-    vec3.transformMat4(vout, vin, model.indexToWorld);
-    vec3.copy(aout, vout);
-  };
-
-  // this is the fast version, requires vec3 arguments
-  publicAPI.worldToIndexVec3 = (vin, vout) => {
-    vec3.transformMat4(vout, vin, model.worldToIndex);
-  };
-
   publicAPI.worldToIndexBounds = (bin, bout = []) => {
     const in1 = [0, 0, 0];
     const in2 = [0, 0, 0];
@@ -348,14 +369,6 @@ function vtkImageData(publicAPI, model) {
     vtkMath.computeBoundsFromPoints(out1, out2, bout);
 
     return bout;
-  };
-
-  // slow version for generic arrays
-  publicAPI.worldToIndex = (ain, aout) => {
-    const vin = vec3.fromValues(ain[0], ain[1], ain[2]);
-    const vout = vec3.create();
-    vec3.transformMat4(vout, vin, model.worldToIndex);
-    vec3.copy(aout, vout);
   };
 
   // Make sure the transform is correct
@@ -402,10 +415,7 @@ function vtkImageData(publicAPI, model) {
     const yStride = dimensions[0];
     const zStride = dimensions[0] * dimensions[1];
 
-    const pixels = publicAPI
-      .getPointData()
-      .getScalars()
-      .getData();
+    const pixels = publicAPI.getPointData().getScalars().getData();
 
     let maximum = -Infinity;
     let minimum = Infinity;
@@ -443,6 +453,91 @@ function vtkImageData(publicAPI, model) {
       variance,
       sigma,
     };
+  };
+
+  // TODO: use the unimplemented `vtkDataSetAttributes` for scalar length, that is currently also a TODO (GetNumberOfComponents).
+  // Scalar data could be tuples for color information?
+  publicAPI.computeIncrements = (extent, numberOfComponents = 1) => {
+    const increments = [];
+    let incr = numberOfComponents;
+
+    // Calculate array increment offsets
+    // similar to c++ vtkImageData::ComputeIncrements
+    for (let idx = 0; idx < 3; ++idx) {
+      increments[idx] = incr;
+      incr *= extent[idx * 2 + 1] - extent[idx * 2] + 1;
+    }
+    return increments;
+  };
+
+  /**
+   * @param {Number[]} index the localized `[i,j,k]` pixel array position. Float values will be rounded.
+   * @return {Number} the corresponding flattened index in the scalar array
+   */
+  publicAPI.computeOffsetIndex = ([i, j, k]) => {
+    const extent = publicAPI.getExtent();
+    const numberOfComponents = publicAPI
+      .getPointData()
+      .getScalars()
+      .getNumberOfComponents();
+    const increments = publicAPI.computeIncrements(extent, numberOfComponents);
+    // Use the array increments to find the pixel index
+    // similar to c++ vtkImageData::GetArrayPointer
+    // Math.floor to catch "practically 0" e^-15 scenarios.
+    return Math.floor(
+      (Math.round(i) - extent[0]) * increments[0] +
+        (Math.round(j) - extent[2]) * increments[1] +
+        (Math.round(k) - extent[4]) * increments[2]
+    );
+  };
+
+  /**
+   * @param {Number[]} xyz the [x,y,z] Array in world coordinates
+   * @return {Number|NaN} the corresponding pixel's index in the scalar array
+   */
+  publicAPI.getOffsetIndexFromWorld = (xyz) => {
+    const extent = publicAPI.getExtent();
+    const index = publicAPI.worldToIndex(xyz);
+
+    // Confirm indexed i,j,k coords are within the bounds of the volume
+    for (let idx = 0; idx < 3; ++idx) {
+      if (index[idx] < extent[idx * 2] || index[idx] > extent[idx * 2 + 1]) {
+        vtkErrorMacro(
+          `GetScalarPointer: Pixel ${index} is not in memory. Current extent = ${extent}`
+        );
+        return NaN;
+      }
+    }
+
+    // Assumed the index here is within 0 <-> scalarData.length, but doesn't hurt to check upstream
+    return publicAPI.computeOffsetIndex(index);
+  };
+  /**
+   * @param {Number[]} xyz the [x,y,z] Array in world coordinates
+   * @param {Number?} comp the scalar component index for multi-component scalars
+   * @return {Number|NaN} the corresponding pixel's scalar value
+   */
+  publicAPI.getScalarValueFromWorld = (xyz, comp = 0) => {
+    const numberOfComponents = publicAPI
+      .getPointData()
+      .getScalars()
+      .getNumberOfComponents();
+    if (comp < 0 || comp >= numberOfComponents) {
+      vtkErrorMacro(
+        `GetScalarPointer: Scalar Component ${comp} is not within bounds. Current Scalar numberOfComponents: ${numberOfComponents}`
+      );
+      return NaN;
+    }
+    const offsetIndex = publicAPI.getOffsetIndexFromWorld(xyz);
+    if (Number.isNaN(offsetIndex)) {
+      // VTK Error Macro will have been tripped already, no need to do it again,
+      return offsetIndex;
+    }
+
+    return publicAPI
+      .getPointData()
+      .getScalars()
+      .getComponent(offsetIndex, comp);
   };
 }
 

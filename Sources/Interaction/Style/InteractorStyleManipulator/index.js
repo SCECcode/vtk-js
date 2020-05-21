@@ -149,6 +149,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
   model.classHierarchy.push('vtkInteractorStyleManipulator');
 
   model.mouseManipulators = [];
+  model.keyboardManipulators = [];
   model.vrManipulators = [];
   model.gestureManipulators = [];
   model.currentManipulator = null;
@@ -159,6 +160,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
   //-------------------------------------------------------------------------
   publicAPI.removeAllManipulators = () => {
     publicAPI.removeAllMouseManipulators();
+    publicAPI.removeAllKeyboardManipulators();
     publicAPI.removeAllVRManipulators();
     publicAPI.removeAllGestureManipulators();
   };
@@ -166,6 +168,11 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
   //-------------------------------------------------------------------------
   publicAPI.removeAllMouseManipulators = () => {
     model.mouseManipulators = [];
+  };
+
+  //-------------------------------------------------------------------------
+  publicAPI.removeAllKeyboardManipulators = () => {
+    model.keyboardManipulators = [];
   };
 
   //-------------------------------------------------------------------------
@@ -179,77 +186,65 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
   };
 
   //-------------------------------------------------------------------------
-  publicAPI.removeMouseManipulator = (index) => {
-    if (model.mouseManipulators.length > index) {
-      model.mouseManipulators[index] = null;
+  const removeManipulator = (manipulator, list) => {
+    const index = list.indexOf(manipulator);
+    if (index === -1) {
+      return false;
     }
+    list.splice(index, 1);
+    publicAPI.modified();
+    return true;
   };
 
   //-------------------------------------------------------------------------
-  publicAPI.removeVRManipulator = (index) => {
-    if (model.vrManipulators.length > index) {
-      model.vrManipulators[index] = null;
+  publicAPI.removeMouseManipulator = (manipulator) =>
+    removeManipulator(manipulator, model.mouseManipulators);
+
+  //-------------------------------------------------------------------------
+  publicAPI.removeKeyboardManipulator = (manipulator) =>
+    removeManipulator(manipulator, model.keyboardManipulators);
+
+  //-------------------------------------------------------------------------
+  publicAPI.removeVRManipulator = (manipulator) =>
+    removeManipulator(manipulator, model.vrManipulators);
+
+  //-------------------------------------------------------------------------
+  publicAPI.removeGestureManipulator = (manipulator) =>
+    removeManipulator(manipulator, model.gestureManipulators);
+
+  //-------------------------------------------------------------------------
+  const addManipulator = (manipulator, list) => {
+    const index = list.indexOf(manipulator);
+    if (index !== -1) {
+      return false;
     }
+    list.push(manipulator);
+    publicAPI.modified();
+    return true;
   };
 
   //-------------------------------------------------------------------------
-  publicAPI.removeGestureManipulator = (index) => {
-    if (model.gestureManipulators.length > index) {
-      model.gestureManipulators[index] = null;
-    }
-  };
+  publicAPI.addMouseManipulator = (manipulator) =>
+    addManipulator(manipulator, model.mouseManipulators);
 
   //-------------------------------------------------------------------------
-  publicAPI.getMouseManipulator = (index) => {
-    let manipulator = null;
-    if (model.mouseManipulators.length > index) {
-      manipulator = model.mouseManipulators[index];
-    }
-    return manipulator;
-  };
+  publicAPI.addKeyboardManipulator = (manipulator) =>
+    addManipulator(manipulator, model.keyboardManipulators);
 
   //-------------------------------------------------------------------------
-  publicAPI.getVRManipulator = (index) => {
-    let manipulator = null;
-    if (model.vrManipulators.length > index) {
-      manipulator = model.vrManipulators[index];
-    }
-    return manipulator;
-  };
+  publicAPI.addVRManipulator = (manipulator) =>
+    addManipulator(manipulator, model.vrManipulators);
 
   //-------------------------------------------------------------------------
-  publicAPI.getGestureManipulator = (index) => {
-    let manipulator = null;
-    if (model.gestureManipulators.length > index) {
-      manipulator = model.gestureManipulators[index];
-    }
-    return manipulator;
-  };
-
-  //-------------------------------------------------------------------------
-  publicAPI.addMouseManipulator = (manipulator) => {
-    const index = model.mouseManipulators.length;
-    model.mouseManipulators.push(manipulator);
-    return index;
-  };
-
-  //-------------------------------------------------------------------------
-  publicAPI.addVRManipulator = (manipulator) => {
-    const index = model.vrManipulators.length;
-    model.vrManipulators.push(manipulator);
-    return index;
-  };
-
-  //-------------------------------------------------------------------------
-  publicAPI.addGestureManipulator = (manipulator) => {
-    const index = model.gestureManipulators.length;
-    model.gestureManipulators.push(manipulator);
-    manipulator.setInteractorStyle(publicAPI);
-    return index;
-  };
+  publicAPI.addGestureManipulator = (manipulator) =>
+    addManipulator(manipulator, model.gestureManipulators);
 
   //-------------------------------------------------------------------------
   publicAPI.getNumberOfMouseManipulators = () => model.mouseManipulators.length;
+
+  //-------------------------------------------------------------------------
+  publicAPI.getNumberOfKeyboardManipulators = () =>
+    model.keyboardManipulators.length;
 
   //-------------------------------------------------------------------------
   publicAPI.getNumberOfVRManipulators = () => model.vrManipulators.length;
@@ -381,6 +376,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
     }
     return manipulator;
   };
+
   //-------------------------------------------------------------------------
   publicAPI.findVRManipulator = (device, input) => {
     // Look for a matching camera manipulator
@@ -439,6 +435,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
     while (count--) {
       const manip = model.mouseManipulators[count];
       if (
+        manip &&
         manip.isScrollEnabled() &&
         manip.getShift() === callData.shiftKey &&
         manip.getControl() === callData.controlKey &&
@@ -485,7 +482,8 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
       model.currentWheelManipulator.onScroll(
         model.interactor,
         callData.pokedRenderer,
-        callData.spinY
+        callData.spinY,
+        model.cachedMousePosition
       );
       publicAPI.invokeInteractionEvent(INTERACTION_EVENT);
     }
@@ -493,6 +491,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
 
   //-------------------------------------------------------------------------
   publicAPI.handleMouseMove = (callData) => {
+    model.cachedMousePosition = callData.position;
     if (model.currentManipulator && model.currentManipulator.onMouseMove) {
       model.currentManipulator.onMouseMove(
         model.interactor,
@@ -504,21 +503,47 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
   };
 
   //-------------------------------------------------------------------------
+  // Keyboard
+  //-------------------------------------------------------------------------
   publicAPI.handleKeyPress = (callData) => {
-    model.mouseManipulators
+    model.keyboardManipulators
+      .filter((m) => m.onKeyPress)
+      .forEach((manipulator) => {
+        manipulator.onKeyPress(
+          model.interactor,
+          callData.pokedRenderer,
+          callData.key
+        );
+        publicAPI.invokeInteractionEvent(INTERACTION_EVENT);
+      });
+  };
+
+  //-------------------------------------------------------------------------
+  publicAPI.handleKeyDown = (callData) => {
+    model.keyboardManipulators
       .filter((m) => m.onKeyDown)
       .forEach((manipulator) => {
-        manipulator.onKeyDown(model.interactor, callData.key);
+        manipulator.onKeyDown(
+          model.interactor,
+          callData.pokedRenderer,
+          callData.key
+        );
         publicAPI.invokeInteractionEvent(INTERACTION_EVENT);
       });
   };
 
   //-------------------------------------------------------------------------
   publicAPI.handleKeyUp = (callData) => {
-    model.mouseManipulators.filter((m) => m.onKeyUp).forEach((manipulator) => {
-      manipulator.onKeyUp(model.interactor, callData.key);
-      publicAPI.invokeInteractionEvent(INTERACTION_EVENT);
-    });
+    model.keyboardManipulators
+      .filter((m) => m.onKeyUp)
+      .forEach((manipulator) => {
+        manipulator.onKeyUp(
+          model.interactor,
+          callData.pokedRenderer,
+          callData.key
+        );
+        publicAPI.invokeInteractionEvent(INTERACTION_EVENT);
+      });
   };
 
   //-------------------------------------------------------------------------
@@ -530,7 +555,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
     let count = model.gestureManipulators.length;
     while (count--) {
       const manipulator = model.gestureManipulators[count];
-      if (manipulator.isPinchEnabled()) {
+      if (manipulator && manipulator.isPinchEnabled()) {
         manipulator.onStartPinch(model.interactor, callData.scale);
         manipulator.startInteraction();
       }
@@ -545,7 +570,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
     let count = model.gestureManipulators.length;
     while (count--) {
       const manipulator = model.gestureManipulators[count];
-      if (manipulator.isPinchEnabled()) {
+      if (manipulator && manipulator.isPinchEnabled()) {
         manipulator.onEndPinch(model.interactor);
         manipulator.endInteraction();
       }
@@ -560,7 +585,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
     let count = model.gestureManipulators.length;
     while (count--) {
       const manipulator = model.gestureManipulators[count];
-      if (manipulator.isRotateEnabled()) {
+      if (manipulator && manipulator.isRotateEnabled()) {
         manipulator.onStartRotate(model.interactor, callData.rotation);
         manipulator.startInteraction();
       }
@@ -575,7 +600,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
     let count = model.gestureManipulators.length;
     while (count--) {
       const manipulator = model.gestureManipulators[count];
-      if (manipulator.isRotateEnabled()) {
+      if (manipulator && manipulator.isRotateEnabled()) {
         manipulator.onEndRotate(model.interactor);
         manipulator.endInteraction();
       }
@@ -590,7 +615,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
     let count = model.gestureManipulators.length;
     while (count--) {
       const manipulator = model.gestureManipulators[count];
-      if (manipulator.isPanEnabled()) {
+      if (manipulator && manipulator.isPanEnabled()) {
         manipulator.onStartPan(model.interactor, callData.translation);
         manipulator.startInteraction();
       }
@@ -605,7 +630,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
     let count = model.gestureManipulators.length;
     while (count--) {
       const manipulator = model.gestureManipulators[count];
-      if (manipulator.isPanEnabled()) {
+      if (manipulator && manipulator.isPanEnabled()) {
         manipulator.onEndPan(model.interactor);
         manipulator.endInteraction();
       }
@@ -620,7 +645,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
     let actionCount = 0;
     while (count--) {
       const manipulator = model.gestureManipulators[count];
-      if (manipulator.isPinchEnabled()) {
+      if (manipulator && manipulator.isPinchEnabled()) {
         manipulator.onPinch(
           model.interactor,
           callData.pokedRenderer,
@@ -640,7 +665,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
     let actionCount = 0;
     while (count--) {
       const manipulator = model.gestureManipulators[count];
-      if (manipulator.isPanEnabled()) {
+      if (manipulator && manipulator.isPanEnabled()) {
         manipulator.onPan(
           model.interactor,
           callData.pokedRenderer,
@@ -660,7 +685,7 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
     let actionCount = 0;
     while (count--) {
       const manipulator = model.gestureManipulators[count];
-      if (manipulator.isRotateEnabled()) {
+      if (manipulator && manipulator.isRotateEnabled()) {
         manipulator.onRotate(
           model.interactor,
           callData.pokedRenderer,
@@ -680,9 +705,11 @@ function vtkInteractorStyleManipulator(publicAPI, model) {
 // ----------------------------------------------------------------------------
 
 const DEFAULT_VALUES = {
+  cachedMousePosition: null,
   currentManipulator: null,
   currentWheelManipulator: null,
   // mouseManipulators: null,
+  // keyboardManipulators: null,
   // vrManipulators: null,
   // gestureManipulators: null,
   centerOfRotation: [0, 0, 0],
@@ -699,6 +726,12 @@ export function extend(publicAPI, model, initialValues = {}) {
 
   // Create get-set macros
   macro.setGet(publicAPI, model, ['rotationFactor']);
+  macro.get(publicAPI, model, [
+    'mouseManipulators',
+    'keyboardManipulators',
+    'vrManipulators',
+    'gestureManipulators',
+  ]);
 
   macro.setGetArray(publicAPI, model, ['centerOfRotation'], 3);
 
@@ -715,4 +748,4 @@ export const newInstance = macro.newInstance(
 
 // ----------------------------------------------------------------------------
 
-export default Object.assign({ newInstance, extend }, STATIC);
+export default { newInstance, extend, ...STATIC };

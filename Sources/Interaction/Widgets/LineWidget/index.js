@@ -17,9 +17,9 @@ function vtkLineWidget(publicAPI, model) {
   // Set our className
   model.classHierarchy.push('vtkLineWidget');
 
-  const superClass = Object.assign({}, publicAPI);
+  const superClass = { ...publicAPI };
 
-  function setCursor(state) {
+  publicAPI.setCursor = (state) => {
     switch (state) {
       case State.OUTSIDE: {
         model.interactor.getView().setCursor('default');
@@ -29,7 +29,7 @@ function vtkLineWidget(publicAPI, model) {
         model.interactor.getView().setCursor('pointer');
       }
     }
-  }
+  };
 
   publicAPI.setCurrentHandle = (value) => {
     model.currentHandle = value;
@@ -70,6 +70,13 @@ function vtkLineWidget(publicAPI, model) {
       model.widgetRep.setPoint1Visibility(1);
       model.widgetRep.setPoint2Visibility(1);
     }
+  };
+
+  publicAPI.setProcessEvents = (processEvents) => {
+    superClass.setProcessEvents(processEvents);
+
+    model.point1Widget.setProcessEvents(processEvents);
+    model.point2Widget.setProcessEvents(processEvents);
   };
 
   publicAPI.setWidgetStateToStart = () => {
@@ -235,7 +242,7 @@ function vtkLineWidget(publicAPI, model) {
 
   publicAPI.updateHandleWidgets = (state) => {
     let modified = false;
-    setCursor(state);
+    publicAPI.setCursor(state);
 
     const enablePoint1Widget = state === State.ONP1;
     const enablePoint2Widget = state === State.ONP2;

@@ -15,7 +15,7 @@ function vtkPicker(publicAPI, model) {
   // Set our className
   model.classHierarchy.push('vtkPicker');
 
-  const superClass = Object.assign({}, publicAPI);
+  const superClass = { ...publicAPI };
 
   function initialize() {
     superClass.initialize();
@@ -61,7 +61,7 @@ function vtkPicker(publicAPI, model) {
     return t;
   };
 
-  // To be overriden in subclasses
+  // To be overridden in subclasses
   publicAPI.pick = (selection, renderer) => {
     if (selection.length !== 3) {
       vtkWarningMacro('vtkPicker::pick: selectionPt needs three components');
@@ -189,10 +189,7 @@ function vtkPicker(publicAPI, model) {
     // multiplying by the tolerance.
     viewport = renderer.getViewport();
     if (renderer.getRenderWindow()) {
-      winSize = renderer
-        .getRenderWindow()
-        .getViews()[0]
-        .getSize();
+      winSize = renderer.getRenderWindow().getViews()[0].getSize();
     }
     x = winSize[0] * viewport[0];
     y = winSize[1] * viewport[1];

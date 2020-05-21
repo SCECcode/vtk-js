@@ -186,7 +186,7 @@ labelMap.ofun.addPoint(0, 0); // our background value, 0, will be invisible
 labelMap.ofun.addPoint(1, 1); // all values above 1 will be fully opaque
 
 labelMap.actor.getProperty().setRGBTransferFunction(labelMap.cfun);
-labelMap.actor.getProperty().setScalarOpacity(labelMap.ofun);
+labelMap.actor.getProperty().setPiecewiseFunction(labelMap.ofun);
 // opacity is applied to entire labelmap
 labelMap.actor.getProperty().setOpacity(0.5);
 
@@ -364,10 +364,7 @@ document.querySelector('.axis').addEventListener('input', (ev) => {
 
   const direction = [0, 0, 0];
   direction[sliceMode] = 1;
-  scene.paintHandle
-    .getWidgetState()
-    .getHandle()
-    .setDirection(direction);
+  scene.paintHandle.getWidgetState().getHandle().setDirection(direction);
   scene.rectangleHandle.setSlicingMode(sliceMode);
   scene.ellipseHandle.setSlicingMode(sliceMode);
   scene.circleHandle.setSlicingMode(sliceMode);

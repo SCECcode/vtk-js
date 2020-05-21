@@ -1,14 +1,28 @@
+import * as macro from 'vtk.js/Sources/macro';
+
 import vtkActor from 'vtk.js/Sources/Rendering/Core/Actor';
 import vtkCamera from 'vtk.js/Sources/Rendering/Core/Camera';
 import vtkColorTransferFunction from 'vtk.js/Sources/Rendering/Core/ColorTransferFunction';
 import vtkDataArray from 'vtk.js/Sources/Common/Core/DataArray';
+import vtkPoints from 'vtk.js/Sources/Common/Core/Points';
+import vtkCellArray from 'vtk.js/Sources/Common/Core/CellArray';
+import vtkGlyph3DMapper from 'vtk.js/Sources/Rendering/Core/Glyph3DMapper';
 import vtkLight from 'vtk.js/Sources/Rendering/Core/Light';
 import vtkLookupTable from 'vtk.js/Sources/Common/Core/LookupTable';
 import vtkMapper from 'vtk.js/Sources/Rendering/Core/Mapper';
 import vtkPolyData from 'vtk.js/Sources/Common/DataModel/PolyData';
+import vtkImageData from 'vtk.js/Sources/Common/DataModel/ImageData';
 import vtkProperty from 'vtk.js/Sources/Rendering/Core/Property';
 import vtkRenderer from 'vtk.js/Sources/Rendering/Core/Renderer';
 import vtkRenderWindow from 'vtk.js/Sources/Rendering/Core/RenderWindow';
+import vtkTexture from 'vtk.js/Sources/Rendering/Core/Texture';
+import vtkVolume from 'vtk.js/Sources/Rendering/Core/Volume';
+import vtkVolumeMapper from 'vtk.js/Sources/Rendering/Core/VolumeMapper';
+import vtkVolumeProperty from 'vtk.js/Sources/Rendering/Core/VolumeProperty';
+import vtkImageSlice from 'vtk.js/Sources/Rendering/Core/ImageSlice';
+import vtkImageMapper from 'vtk.js/Sources/Rendering/Core/ImageMapper';
+import vtkImageProperty from 'vtk.js/Sources/Rendering/Core/ImageProperty';
+import vtkPiecewiseFunction from 'vtk.js/Sources/Common/DataModel/PiecewiseFunction';
 
 // ----------------------------------------------------------------------------
 // Some internal, module-level variables and methods
@@ -20,6 +34,13 @@ const WRAP_ID = (id) => `instance:$\{${id}}`;
 const ONE_TIME_INSTANCE_TRACKERS = {};
 const SKIPPED_INSTANCE_IDS = [];
 const EXCLUDE_INSTANCE_MAP = {};
+const DATA_ARRAY_MAPPER = {
+  vtkPoints,
+  vtkCellArray,
+  vtkDataArray,
+};
+
+// ----------------------------------------------------------------------------
 
 function extractCallArgs(synchronizerContext, argList) {
   return argList.map((arg) => {
@@ -31,12 +52,16 @@ function extractCallArgs(synchronizerContext, argList) {
   });
 }
 
+// ----------------------------------------------------------------------------
+
 function extractInstanceIds(argList) {
   return argList
     .map((arg) => WRAPPED_ID_RE.exec(arg))
     .filter((m) => m)
     .map((m) => m[1]);
 }
+
+// ----------------------------------------------------------------------------
 
 function extractDependencyIds(state, depList = []) {
   if (state.dependencies) {
@@ -46,6 +71,37 @@ function extractDependencyIds(state, depList = []) {
     });
   }
   return depList;
+}
+
+// ----------------------------------------------------------------------------
+
+function bindArrays(arraysToBind) {
+  while (arraysToBind.length) {
+    const [fn, args] = arraysToBind.shift();
+    fn(...args);
+  }
+}
+
+// ----------------------------------------------------------------------------
+
+function createNewArrayHandler(instance, arrayMetadata, arraysToBind) {
+  return (values) => {
+    const vtkClass = arrayMetadata.vtkClass
+      ? arrayMetadata.vtkClass
+      : 'vtkDataArray';
+    const array = DATA_ARRAY_MAPPER[vtkClass].newInstance({
+      ...arrayMetadata,
+      values,
+    });
+    const regMethod = arrayMetadata.registration
+      ? arrayMetadata.registration
+      : 'addArray';
+    const location = arrayMetadata.location
+      ? instance.getReferenceByName(arrayMetadata.location)
+      : instance;
+    arraysToBind.push([location[regMethod], [array]]);
+    return array;
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -64,10 +120,13 @@ function update(type, instance, props, context) {
   }
 }
 
+// ----------------------------------------------------------------------------
+
 function build(type, initialProps = {}) {
   const handler = TYPE_HANDLERS[type];
 
   if (handler && handler.build) {
+    // DEBUG console.log(`new ${type} - ${initialProps.managedInstanceId}`);
     return handler.build(initialProps);
   }
 
@@ -75,14 +134,7 @@ function build(type, initialProps = {}) {
   return null;
 }
 
-function setTypeMapping(type, buildFn = null, updateFn = null) {
-  if (!build && !update) {
-    delete TYPE_HANDLERS[type];
-    return;
-  }
-
-  TYPE_HANDLERS[type] = { build: buildFn, update: updateFn };
-}
+// ----------------------------------------------------------------------------
 
 function excludeInstance(type, propertyName, propertyValue) {
   EXCLUDE_INSTANCE_MAP[type] = {
@@ -91,9 +143,13 @@ function excludeInstance(type, propertyName, propertyValue) {
   };
 }
 
+// ----------------------------------------------------------------------------
+
 function getSupportedTypes() {
   return Object.keys(TYPE_HANDLERS);
 }
+
+// ----------------------------------------------------------------------------
 
 function clearTypeMapping() {
   Object.keys(TYPE_HANDLERS).forEach((key) => {
@@ -101,15 +157,21 @@ function clearTypeMapping() {
   });
 }
 
+// ----------------------------------------------------------------------------
+
 function updateRenderWindow(instance, props, context) {
   return update('vtkRenderWindow', instance, props, context);
 }
+
+// ----------------------------------------------------------------------------
 
 function clearAllOneTimeUpdaters() {
   Object.keys(ONE_TIME_INSTANCE_TRACKERS).forEach((key) => {
     delete ONE_TIME_INSTANCE_TRACKERS[key];
   });
 }
+
+// ----------------------------------------------------------------------------
 
 function clearOneTimeUpdaters(...ids) {
   if (ids.length === 0) {
@@ -127,12 +189,14 @@ function clearOneTimeUpdaters(...ids) {
   return array;
 }
 
+// ----------------------------------------------------------------------------
+
 function notSkippedInstance(call) {
   if (call[1].length === 1) {
     return SKIPPED_INSTANCE_IDS.indexOf(call[1][0]) === -1;
   }
   let keep = false;
-  for (let i = 0; i < call[1]; i++) {
+  for (let i = 0; i < call[1].length; i++) {
     keep = keep || SKIPPED_INSTANCE_IDS.indexOf(call[1][i]) === -1;
   }
   return keep;
@@ -143,7 +207,7 @@ function notSkippedInstance(call) {
 // ----------------------------------------------------------------------------
 
 function genericUpdater(instance, state, context) {
-  context.start();
+  context.start(); // -> start(generic-updater)
 
   // First update our own properties
   instance.set(state.properties);
@@ -171,14 +235,44 @@ function genericUpdater(instance, state, context) {
   }
 
   if (state.calls) {
-    state.calls
-      .filter(notSkippedInstance)
-      .forEach((call) =>
-        instance[call[0]].apply(null, extractCallArgs(context, call[1]))
-      );
+    state.calls.filter(notSkippedInstance).forEach((call) => {
+      // DEBUG console.log('==>', call[0], extractCallArgs(context, call[1]));
+      instance[call[0]].apply(null, extractCallArgs(context, call[1]));
+    });
   }
 
-  context.end();
+  // if some arrays need to be be fetch
+  if (state.arrays) {
+    const arraysToBind = [];
+    const promises = state.arrays.map((arrayMetadata) => {
+      context.start(); // -> start(arrays)
+      return context
+        .getArray(arrayMetadata.hash, arrayMetadata.dataType, context)
+        .then(createNewArrayHandler(instance, arrayMetadata, arraysToBind))
+        .catch((error) => {
+          console.log(
+            'Error fetching array',
+            JSON.stringify(arrayMetadata),
+            error
+          );
+        })
+        .finally(context.end); // -> end(arrays)
+    });
+    context.start(); // -> start(arraysToBind)
+    Promise.all(promises)
+      .then(() => {
+        bindArrays(arraysToBind);
+      })
+      .catch((error) => {
+        console.error(
+          'Error in array handling for state',
+          JSON.stringify(state),
+          error
+        );
+      })
+      .finally(context.end); // -> end(arraysToBind)
+  }
+  context.end(); // -> end(generic-updater)
 }
 
 // ----------------------------------------------------------------------------
@@ -242,10 +336,10 @@ function rendererUpdater(instance, state, context) {
           const deps = context.getInstance(vpId).get('flattenedDepIds')
             .flattenedDepIds;
           if (deps) {
-            // Consider each dependency for unregistering
+            // Consider each dependency for un-registering
             deps.forEach((depId) => unregisterCandidates.add(depId));
           }
-          // Consider the viewProp itself for unresistering
+          // Consider the viewProp itself for un-registering
           unregisterCandidates.add(vpId);
         });
       });
@@ -297,108 +391,126 @@ function vtkRenderWindowUpdater(instance, state, context) {
 // ----------------------------------------------------------------------------
 
 function colorTransferFunctionUpdater(instance, state, context) {
-  context.start();
+  context.start(); // -> start(colorTransferFunctionUpdater)
   const nodes = state.properties.nodes.map(
     ([x, r, g, b, midpoint, sharpness]) => ({ x, r, g, b, midpoint, sharpness })
   );
-  instance.set(Object.assign({}, state.properties, { nodes }), true);
+  instance.set({ ...state.properties, nodes }, true);
   instance.sortAndUpdateRange();
   instance.modified();
-  context.end();
+  context.end(); // -> end(colorTransferFunctionUpdater)
+}
+
+function piecewiseFunctionUpdater(instance, state, context) {
+  context.start(); // -> start(piecewiseFunctionUpdater)
+  const nodes = state.properties.nodes.map(([x, y, midpoint, sharpness]) => ({
+    x,
+    y,
+    midpoint,
+    sharpness,
+  }));
+  instance.set({ ...state.properties, nodes }, true);
+  instance.sortAndUpdateRange();
+  instance.modified();
+  context.end(); // -> end(piecewiseFunctionUpdater)
 }
 
 // ----------------------------------------------------------------------------
 
-function polydataUpdater(instance, state, context) {
-  context.start();
-  const props = state.properties;
-  const piecesToFetch = ['points', 'polys', 'verts', 'lines', 'strips'];
-  let nbArrayToDownload = props.fields.length;
-  const arraysToBind = [
-    [instance.getPointData().removeAllArrays, []],
-    [instance.getCellData().removeAllArrays, []],
-  ];
+function createDataSetUpdate(piecesToFetch = []) {
+  return (instance, state, context) => {
+    context.start(); // -> start(dataset-update)
 
-  function validateDataset() {
-    if (arraysToBind.length - 2 === nbArrayToDownload) {
-      while (arraysToBind.length) {
-        const [fn, args] = arraysToBind.shift();
-        fn(...args);
-      }
-      instance.modified();
-      context.end();
+    // Make sure we provide container for std arrays
+    if (!state.arrays) {
+      state.arrays = [];
     }
-  }
 
-  // Fetch geometry
-  piecesToFetch.forEach((arrayName) => {
-    if (props[arrayName]) {
-      nbArrayToDownload += 1;
-      const arrayMetadata = props[arrayName];
-      context
-        .getArray(arrayMetadata.hash, arrayMetadata.dataType, context)
-        .then(
-          (values) => {
-            arraysToBind.push([
-              instance.get(arrayName)[arrayName].setData,
-              [values, arrayMetadata.numberOfComponents],
-            ]);
-            validateDataset();
-          },
-          (error) => {
-            console.log('error geometry fetching array', error);
-          }
-        );
-    }
-  });
-
-  // Fetch needed data arrays...
-  props.fields.forEach((arrayMetadata) => {
-    context.getArray(arrayMetadata.hash, arrayMetadata.dataType, context).then(
-      (values) => {
-        const array = vtkDataArray.newInstance(
-          Object.assign({ values }, arrayMetadata)
-        );
-        const regMethod = arrayMetadata.registration
-          ? arrayMetadata.registration
-          : 'addArray';
-        arraysToBind.push([
-          instance.get(arrayMetadata.location)[arrayMetadata.location][
-            regMethod
-          ],
-          [array],
-        ]);
-        validateDataset();
-      },
-      (error) => {
-        console.log('error field fetching array', error);
+    // Array members
+    // => convert old format to generic state.arrays
+    piecesToFetch.forEach((key) => {
+      if (state.properties[key]) {
+        const arrayMeta = state.properties[key];
+        arrayMeta.registration = `set${macro.capitalize(key)}`;
+        state.arrays.push(arrayMeta);
+        delete state.properties[key];
       }
-    );
-  });
+    });
+
+    // Extract dataset fields
+    const fieldsArrays = state.properties.fields || [];
+    state.arrays.push(...fieldsArrays);
+    delete state.properties.fields;
+
+    // Reset any pre-existing fields array
+    instance.getPointData().removeAllArrays();
+    instance.getCellData().removeAllArrays();
+
+    // Generic handling
+    genericUpdater(instance, state, context);
+
+    // Finish what we started
+    context.end(); // -> end(dataset-update)
+  };
 }
+
+const polydataUpdater = createDataSetUpdate([
+  'points',
+  'polys',
+  'verts',
+  'lines',
+  'strips',
+]);
+const imageDataUpdater = createDataSetUpdate([]);
 
 // ----------------------------------------------------------------------------
 // Construct the type mapping
 // ----------------------------------------------------------------------------
 
+function setTypeMapping(type, buildFn = null, updateFn = genericUpdater) {
+  if (!build && !update) {
+    delete TYPE_HANDLERS[type];
+    return;
+  }
+
+  TYPE_HANDLERS[type] = { build: buildFn, update: updateFn };
+}
+
+// ----------------------------------------------------------------------------
+
+const DEFAULT_ALIASES = {
+  vtkMapper: [
+    'vtkOpenGLPolyDataMapper',
+    'vtkCompositePolyDataMapper2',
+    'vtkDataSetMapper',
+  ],
+  vtkProperty: ['vtkOpenGLProperty'],
+  vtkRenderer: ['vtkOpenGLRenderer'],
+  vtkCamera: ['vtkOpenGLCamera'],
+  vtkColorTransferFunction: ['vtkPVDiscretizableColorTransferFunction'],
+  vtkActor: ['vtkOpenGLActor', 'vtkPVLODActor'],
+  vtkLight: ['vtkOpenGLLight', 'vtkPVLight'],
+  vtkTexture: ['vtkOpenGLTexture'],
+  vtkImageMapper: ['vtkOpenGLImageSliceMapper'],
+  vtkVolumeMapper: ['vtkFixedPointVolumeRayCastMapper'],
+};
+
+// ----------------------------------------------------------------------------
+
 const DEFAULT_MAPPING = {
-  vtkCompositePolyDataMapper2: {
-    build: vtkMapper.newInstance,
-    update: genericUpdater,
+  vtkRenderWindow: {
+    build: vtkRenderWindow.newInstance,
+    update: vtkRenderWindowUpdater,
+  },
+  vtkRenderer: {
+    build: vtkRenderer.newInstance,
+    update: rendererUpdater,
   },
   vtkLookupTable: {
     build: vtkLookupTable.newInstance,
     update: genericUpdater,
   },
-  vtkOpenGLProperty: {
-    build: vtkProperty.newInstance,
-    update: genericUpdater,
-  },
-  vtkOpenGLRenderer: {
-    build: vtkRenderer.newInstance,
-    update: rendererUpdater,
-  },
-  vtkOpenGLCamera: {
+  vtkCamera: {
     build: vtkCamera.newInstance,
     update: oneTimeGenericUpdater,
   },
@@ -406,31 +518,69 @@ const DEFAULT_MAPPING = {
     build: vtkPolyData.newInstance,
     update: polydataUpdater,
   },
-  vtkPVDiscretizableColorTransferFunction: {
+  vtkImageData: {
+    build: vtkImageData.newInstance,
+    update: imageDataUpdater,
+  },
+  vtkMapper: {
+    build: vtkMapper.newInstance,
+    update: genericUpdater,
+  },
+  vtkGlyph3DMapper: {
+    build: vtkGlyph3DMapper.newInstance,
+    update: genericUpdater,
+  },
+  vtkProperty: {
+    build: vtkProperty.newInstance,
+    update: genericUpdater,
+  },
+  vtkActor: {
+    build: vtkActor.newInstance,
+    update: genericUpdater,
+  },
+  vtkLight: {
+    build: vtkLight.newInstance,
+    update: genericUpdater,
+  },
+  vtkColorTransferFunction: {
     build: vtkColorTransferFunction.newInstance,
     update: colorTransferFunctionUpdater,
   },
-  vtkPVLODActor: {
-    build: vtkActor.newInstance,
+  vtkTexture: {
+    build: vtkTexture.newInstance,
     update: genericUpdater,
   },
-  vtkOpenGLActor: {
-    build: vtkActor.newInstance,
+  vtkVolume: {
+    build: vtkVolume.newInstance,
     update: genericUpdater,
   },
-  vtkRenderWindow: {
-    build: vtkRenderWindow.newInstance,
-    update: vtkRenderWindowUpdater,
-  },
-  vtkOpenGLLight: {
-    build: vtkLight.newInstance,
+  vtkVolumeMapper: {
+    build: vtkVolumeMapper.newInstance,
     update: genericUpdater,
   },
-  vtkPVLight: {
-    build: vtkLight.newInstance,
+  vtkVolumeProperty: {
+    build: vtkVolumeProperty.newInstance,
     update: genericUpdater,
+  },
+  vtkImageSlice: {
+    build: vtkImageSlice.newInstance,
+    update: genericUpdater,
+  },
+  vtkImageMapper: {
+    build: vtkImageMapper.newInstance,
+    update: genericUpdater,
+  },
+  vtkImageProperty: {
+    build: vtkImageProperty.newInstance,
+    update: genericUpdater,
+  },
+  vtkPiecewiseFunction: {
+    build: vtkPiecewiseFunction.newInstance,
+    update: piecewiseFunctionUpdater,
   },
 };
+
+// ----------------------------------------------------------------------------
 
 function setDefaultMapping(reset = true) {
   if (reset) {
@@ -443,11 +593,34 @@ function setDefaultMapping(reset = true) {
   });
 }
 
+// ----------------------------------------------------------------------------
+
+function applyDefaultAliases() {
+  // Add aliases
+  Object.keys(DEFAULT_ALIASES).forEach((name) => {
+    const aliases = DEFAULT_ALIASES[name];
+    aliases.forEach((alias) => {
+      TYPE_HANDLERS[alias] = TYPE_HANDLERS[name];
+    });
+  });
+}
+
+// ----------------------------------------------------------------------------
+
+function alwaysUpdateCamera() {
+  setTypeMapping('vtkCamera', vtkCamera.newInstance);
+  applyDefaultAliases();
+}
+
+// ----------------------------------------------------------------------------
 setDefaultMapping();
+applyDefaultAliases();
+// ----------------------------------------------------------------------------
 
 // Avoid handling any lights at the moment
 EXCLUDE_INSTANCE_MAP.vtkOpenGLLight = {};
 EXCLUDE_INSTANCE_MAP.vtkPVLight = {};
+EXCLUDE_INSTANCE_MAP.vtkLight = {};
 
 // ----------------------------------------------------------------------------
 // Publicly exposed methods
@@ -456,10 +629,15 @@ EXCLUDE_INSTANCE_MAP.vtkPVLight = {};
 export default {
   build,
   update,
+  genericUpdater,
+  oneTimeGenericUpdater,
   setTypeMapping,
   clearTypeMapping,
   getSupportedTypes,
   clearOneTimeUpdaters,
   updateRenderWindow,
   excludeInstance,
+  setDefaultMapping,
+  applyDefaultAliases,
+  alwaysUpdateCamera,
 };

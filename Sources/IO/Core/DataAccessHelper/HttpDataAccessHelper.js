@@ -86,11 +86,7 @@ function fetchArray(instance = {}, baseURL, array, options = {}) {
 
             if (array.values.length !== array.size) {
               vtkErrorMacro(
-                `Error in FetchArray: ${
-                  array.name
-                }, does not have the proper array size. Got ${
-                  array.values.length
-                }, instead of ${array.size}`
+                `Error in FetchArray: ${array.name}, does not have the proper array size. Got ${array.values.length}, instead of ${array.size}`
               );
             }
 
@@ -217,11 +213,26 @@ function fetchText(instance = {}, url, options = {}) {
 
 // ----------------------------------------------------------------------------
 
+function fetchImage(instance = {}, url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    if (options.crossOrigin) {
+      img.crossOrigin = options.crossOrigin;
+    }
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+// ----------------------------------------------------------------------------
+
 export default {
   fetchArray,
   fetchJSON,
   fetchText,
   fetchBinary, // Only for HTTP
+  fetchImage,
 };
 
 /* eslint-enable prefer-promise-reject-errors */

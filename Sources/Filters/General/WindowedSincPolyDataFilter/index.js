@@ -45,7 +45,7 @@ function vtkWindowedSincPolyDataFilter(publicAPI, model) {
 
     const numPts = inPts.getNumberOfPoints();
 
-    // Perform topological analysis. What we're gonna do is build a connectivity
+    // Perform topological analysis. What we're going to do is build a connectivity
     // array of connected vertices. The outcome will be one of three
     // classifications for a vertex: VTK_SIMPLE_VERTEX, VTK_FIXED_VERTEX. or
     // VTK_EDGE_VERTEX. Simple vertices are smoothed using all connected
@@ -334,7 +334,7 @@ function vtkWindowedSincPolyDataFilter(publicAPI, model) {
       // for (let i = 0; i < numPts; ++i) {
       //   newPts[zero].setPoint(i, inPts.subarray(i));
       // }
-      const copy = new window[(newPts[zero].getDataType())](inPtsData);
+      const copy = new window[newPts[zero].getDataType()](inPtsData);
       newPts[zero].setData(copy, 3);
     } else {
       // center the data and scale to be within unit cube [-1, 1]
@@ -704,7 +704,4 @@ export const newInstance = macro.newInstance(
 
 // ----------------------------------------------------------------------------
 
-export default Object.assign({
-  newInstance,
-  extend,
-});
+export default { newInstance, extend };

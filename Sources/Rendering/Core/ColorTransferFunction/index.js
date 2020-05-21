@@ -147,7 +147,7 @@ function vtkColorTransferFunction(publicAPI, model) {
 
   //----------------------------------------------------------------------------
   // Add a point defined in RGB
-  publicAPI.addRGBPointLong = (x, r, g, b, midpoint, sharpness) => {
+  publicAPI.addRGBPointLong = (x, r, g, b, midpoint = 0.5, sharpness = 0.0) => {
     // Error check
     if (midpoint < 0.0 || midpoint > 1.0) {
       vtkErrorMacro('Midpoint outside range [0.0, 1.0]');
@@ -196,7 +196,7 @@ function vtkColorTransferFunction(publicAPI, model) {
 
   //----------------------------------------------------------------------------
   // Add a point defined in HSV
-  publicAPI.addHSVPointLong = (x, h, s, v, midpoint, sharpness) => {
+  publicAPI.addHSVPointLong = (x, h, s, v, midpoint = 0.5, sharpness = 0.0) => {
     const rgb = [];
     const hsv = [h, s, v];
 
@@ -492,6 +492,28 @@ function vtkColorTransferFunction(publicAPI, model) {
         x = 10.0 ** logX;
       } else {
         x = 0.5 * (xStart + xEnd);
+      }
+
+      // Linearly map x from mappingRange to [0, numberOfValues-1],
+      // discretize (round down to the closest integer),
+      // then map back to mappingRange
+      if (model.discretize) {
+        const range = model.mappingRange;
+        if (x >= range[0] && x <= range[1]) {
+          const numberOfValues = model.numberOfValues;
+          const deltaRange = range[1] - range[0];
+          if (numberOfValues <= 1) {
+            x = range[0] + deltaRange / 2.0;
+          } else {
+            // normalize x
+            const xn = (x - range[0]) / deltaRange;
+            // discretize
+            const discretizeIndex = vtkMath.floor(numberOfValues * xn);
+            // get discretized x
+            x =
+              range[0] + (discretizeIndex / (numberOfValues - 1)) * deltaRange;
+          }
+        }
       }
 
       // Do we need to move to the next node?
@@ -1182,6 +1204,9 @@ const DEFAULT_VALUES = {
   buildTime: null,
 
   nodes: null,
+
+  discretize: false,
+  numberOfValues: 256,
 };
 
 // ----------------------------------------------------------------------------
@@ -1211,6 +1236,8 @@ export function extend(publicAPI, model, initialValues = {}) {
     'useAboveRangeColor',
     'useBelowRangeColor',
     'colorSpace',
+    'discretize',
+    'numberOfValues',
   ]);
 
   macro.setArray(
@@ -1242,4 +1269,4 @@ export const newInstance = macro.newInstance(
 
 // ----------------------------------------------------------------------------
 
-export default Object.assign({ newInstance, extend, vtkColorMaps }, Constants);
+export default { newInstance, extend, vtkColorMaps, ...Constants };

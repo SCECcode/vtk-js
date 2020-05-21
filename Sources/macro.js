@@ -118,7 +118,7 @@ export function formatBytesToProperUnit(size, precision = 2, chunkSize = 1000) {
   return `${value.toFixed(precision)} ${currentUnit}`;
 }
 // ----------------------------------------------------------------------------
-// Convert thousand number with proper seperator
+// Convert thousand number with proper separator
 // ----------------------------------------------------------------------------
 
 export function formatNumbersWithThousandSeparator(n, separator = ' ') {
@@ -284,9 +284,7 @@ export function obj(publicAPI = {}, model = {}) {
 
   // Add serialization support
   publicAPI.getState = () => {
-    const jsonArchive = Object.assign({}, model, {
-      vtkClass: publicAPI.getClassName(),
-    });
+    const jsonArchive = { ...model, vtkClass: publicAPI.getClassName() };
 
     // Convert every vtkObject to its serializable form
     Object.keys(jsonArchive).forEach((keyName) => {
@@ -503,7 +501,9 @@ export function setArray(
           array = [].concat(array);
           while (array.length < size) array.push(defaultVal);
         } else {
-          throw new RangeError('Invalid number of values for array setter');
+          throw new RangeError(
+            `Invalid number of values for array setter (${field})`
+          );
         }
       }
       let changeDetected = false;
@@ -519,8 +519,9 @@ export function setArray(
       if (changeDetected || model[field].length !== array.length) {
         model[field] = [].concat(array);
         publicAPI.modified();
+        return true;
       }
-      return true;
+      return false;
     };
 
     publicAPI[`set${capitalize(field)}From`] = (otherArray) => {
@@ -1011,9 +1012,9 @@ export function keystore(publicAPI, model, initialKeystore = {}) {
   publicAPI.setKey = (key, value) => {
     model.keystore[key] = value;
   };
-  publicAPI.getKey = (key, value) => model.keystore[key];
-  publicAPI.getAllKeys = (key, value) => Object.keys(model.keystore);
-  publicAPI.deleteKey = (key, value) => delete model.keystore[key];
+  publicAPI.getKey = (key) => model.keystore[key];
+  publicAPI.getAllKeys = () => Object.keys(model.keystore);
+  publicAPI.deleteKey = (key) => delete model.keystore[key];
   publicAPI.clearKeystore = () =>
     publicAPI.getAllKeys().forEach((key) => delete model.keystore[key]);
 }
@@ -1089,7 +1090,7 @@ export function proxy(publicAPI, model) {
     if (prop) {
       Object.assign(prop, propUI);
     } else {
-      propertyMap[propertyName] = Object.assign({}, propUI);
+      propertyMap[propertyName] = { ...propUI };
     }
   };
 
@@ -1260,7 +1261,8 @@ export function proxy(publicAPI, model) {
   publicAPI.getPropertyByName = (name) =>
     getProperties().find((p) => p.name === name);
 
-  publicAPI.getPropertyDomainByName = (name) => propertyMap[name].domain;
+  publicAPI.getPropertyDomainByName = (name) =>
+    (propertyMap[name] || {}).domain;
 
   // ui section
   publicAPI.getProxySection = () => ({

@@ -234,48 +234,28 @@ function vtkSliceRepresentationProxy(publicAPI, model) {
       dynamicAddOn.ijkOrientation = ijkOrientation.join('');
     }
 
-    return Object.assign(
-      {
-        ijkMode,
-        sliceBounds,
-        sliceIndex,
-        sliceNormal,
-        sliceOrigin,
-        slicePosition,
-      },
-      dynamicAddOn
-    );
-  };
-
-  // Used for UI
-  publicAPI.getSliceValues = (slicingMode = model.slicingMode) => {
-    const ds = publicAPI.getInputDataSet();
-    if (!ds) {
-      return [];
-    }
-    const values = [];
-    const bds = ds.getBounds();
-    const axisIndex = 'XYZ'.indexOf(slicingMode);
-    const endValue = bds[axisIndex * 2 + 1];
-    let currentValue = bds[axisIndex * 2];
-    while (currentValue <= endValue) {
-      values.push(currentValue);
-      currentValue++;
-    }
-    return values;
+    return {
+      ijkMode,
+      sliceBounds,
+      sliceIndex,
+      sliceNormal,
+      sliceOrigin,
+      slicePosition,
+      ...dynamicAddOn,
+    };
   };
 
   const parentSetColorBy = publicAPI.setColorBy;
   publicAPI.setColorBy = (arrayName, arrayLocation, componentIndex = -1) => {
     if (arrayName === null) {
       model.property.setRGBTransferFunction(null);
-      model.property.setScalarOpacity(null);
+      model.property.setPiecewiseFunction(null);
     } else {
       parentSetColorBy(arrayName, arrayLocation, componentIndex);
       const lutProxy = publicAPI.getLookupTableProxy(arrayName);
       const pwfProxy = publicAPI.getPiecewiseFunctionProxy(arrayName);
       model.property.setRGBTransferFunction(lutProxy.getLookupTable());
-      model.property.setScalarOpacity(pwfProxy.getPiecewiseFunction());
+      model.property.setPiecewiseFunction(pwfProxy.getPiecewiseFunction());
     }
   };
 
@@ -295,7 +275,7 @@ export function extend(publicAPI, model, initialValues = {}) {
   Object.assign(model, DEFAULT_VALUES, initialValues);
 
   // Object methods
-  vtkAbstractRepresentationProxy.extend(publicAPI, model);
+  vtkAbstractRepresentationProxy.extend(publicAPI, model, initialValues);
   macro.get(publicAPI, model, ['slicingMode']);
 
   // Object specific methods

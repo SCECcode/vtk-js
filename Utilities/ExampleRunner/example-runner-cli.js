@@ -1,7 +1,7 @@
 #! /usr/bin/env node
 
 /* eslint-disable */
-var program = require('commander');
+var { program } = require('commander');
 var path = require('path');
 var shell = require('shelljs');
 var fs = require('fs');
@@ -73,6 +73,10 @@ if (configuration.examples) {
 
   if (exampleCount === 0) {
     examples = null;
+    if (buildExample) {
+      console.error(`=> Error: Did not find any examples matching ${filterExamples[0]}`);
+      process.exit(1);
+    }
   }
 
   if (buildExample) {

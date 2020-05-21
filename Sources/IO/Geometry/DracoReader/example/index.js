@@ -65,6 +65,20 @@ vtkResourceLoader
   });
 
 // ----------------------------------------------------------------------------
+// WASMLoader usage example (for better performance)
+// ----------------------------------------------------------------------------
+
+//  vtkResourceLoader
+//    .loadScript('https://www.gstatic.com/draco/v1/decoders/draco_wasm_wrapper.js')
+//    .then(() => {
+//      vtkDracoReader
+//        .setWasmBinary('https://www.gstatic.com/draco/v1/decoders/draco_decoder.wasm', 'draco_decoder.wasm')
+//        .then(() => {
+//          reader.setUrl('https://kitware.github.io/vtk-js-datasets/data/draco/throw_14.drc').then(update);
+//        });
+//    });
+
+// ----------------------------------------------------------------------------
 // Use a file reader to load a local file
 // ----------------------------------------------------------------------------
 

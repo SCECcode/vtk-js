@@ -74,14 +74,8 @@ function vtkAbstractRepresentationProxy(publicAPI, model) {
     return null;
   };
 
-  publicAPI.setLookupTableProxy = (lutProxy) => {
-    // In place edits, no need to re-assign it...
-    console.log(
-      'setLookupTable',
-      lutProxy.getPresetName(),
-      lutProxy.getDataRange()
-    );
-  };
+  // In place edits, no need to re-assign it...
+  publicAPI.setLookupTableProxy = () => {};
 
   publicAPI.getPiecewiseFunctionProxy = (arrayName) => {
     const arrayNameToUse = arrayName || publicAPI.getColorBy()[0];
@@ -91,10 +85,8 @@ function vtkAbstractRepresentationProxy(publicAPI, model) {
     return null;
   };
 
-  publicAPI.setPiecewiseFunctionProxy = (pwfProxy) => {
-    // In place edits, no need to re-assign it...
-    console.log('setPiecewiseFunction', pwfProxy.getDataRange());
-  };
+  // In place edits, no need to re-assign it...
+  publicAPI.setPiecewiseFunctionProxy = () => {};
 
   publicAPI.rescaleTransferFunctionToDataRange = (n, l, c = -1) => {
     const array = publicAPI.getDataArray(n, l);
@@ -113,13 +105,18 @@ function vtkAbstractRepresentationProxy(publicAPI, model) {
   };
 
   publicAPI.setVisibility = (visible) => {
+    let change = 0;
     let count = model.actors.length;
     while (count--) {
-      model.actors[count].setVisibility(visible);
+      change += model.actors[count].setVisibility(visible);
     }
     count = model.volumes.length;
     while (count--) {
-      model.volumes[count].setVisibility(visible);
+      change += model.volumes[count].setVisibility(visible);
+    }
+
+    if (change) {
+      publicAPI.modified();
     }
   };
 
@@ -152,11 +149,13 @@ function vtkAbstractRepresentationProxy(publicAPI, model) {
       if (model.mapper.setLookupTable) {
         model.mapper.setLookupTable(lookupTable);
       }
-      publicAPI.rescaleTransferFunctionToDataRange(
-        arrayName,
-        arrayLocation,
-        componentIndex
-      );
+      if (model.rescaleOnColorBy) {
+        publicAPI.rescaleTransferFunctionToDataRange(
+          arrayName,
+          arrayLocation,
+          componentIndex
+        );
+      }
     }
 
     // Not all mappers have those fields
@@ -175,44 +174,20 @@ function vtkAbstractRepresentationProxy(publicAPI, model) {
     if (!model.mapper.getColorByArrayName) {
       const ds = publicAPI.getInputDataSet();
       if (ds.getPointData().getScalars()) {
-        return [
-          ds
-            .getPointData()
-            .getScalars()
-            .getName(),
-          'pointData',
-          -1,
-        ];
+        return [ds.getPointData().getScalars().getName(), 'pointData', -1];
       }
       if (ds.getCellData().getScalars()) {
-        return [
-          ds
-            .getCellData()
-            .getScalars()
-            .getName(),
-          'cellData',
-          -1,
-        ];
+        return [ds.getCellData().getScalars().getName(), 'cellData', -1];
       }
       if (ds.getPointData().getNumberOfArrays()) {
         return [
-          ds
-            .getPointData()
-            .getArrayByIndex(0)
-            .getName(),
+          ds.getPointData().getArrayByIndex(0).getName(),
           'pointData',
           -1,
         ];
       }
       if (ds.getCellData().getNumberOfArrays()) {
-        return [
-          ds
-            .getCellData()
-            .getArrayByIndex(0)
-            .getName(),
-          'cellData',
-          -1,
-        ];
+        return [ds.getCellData().getArrayByIndex(0).getName(), 'cellData', -1];
       }
       return [];
     }
@@ -338,6 +313,7 @@ const DEFAULT_VALUES = {
   actors: [],
   volumes: [],
   sourceDependencies: [],
+  rescaleOnColorBy: true,
 };
 
 // ----------------------------------------------------------------------------
@@ -346,6 +322,7 @@ function extend(publicAPI, model, initialValues = {}) {
   Object.assign(model, DEFAULT_VALUES, initialValues);
 
   vtkProp.extend(publicAPI, model, initialValues);
+  macro.setGet(publicAPI, model, ['rescaleOnColorBy']);
   macro.get(publicAPI, model, ['input', 'mapper', 'actors', 'volumes']);
 
   // Object specific methods

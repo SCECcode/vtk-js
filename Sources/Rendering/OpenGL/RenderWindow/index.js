@@ -72,11 +72,19 @@ function vtkOpenGLRenderWindow(publicAPI, model) {
   model.classHierarchy.push('vtkOpenGLRenderWindow');
 
   // Auto update style
+  const previousSize = [0, 0];
   function updateWindow() {
     // Canvas size
     if (model.renderable) {
-      model.canvas.setAttribute('width', model.size[0]);
-      model.canvas.setAttribute('height', model.size[1]);
+      if (
+        model.size[0] !== previousSize[0] ||
+        model.size[1] !== previousSize[1]
+      ) {
+        previousSize[0] = model.size[0];
+        previousSize[1] = model.size[1];
+        model.canvas.setAttribute('width', model.size[0]);
+        model.canvas.setAttribute('height', model.size[1]);
+      }
     }
 
     // ImageStream size
@@ -160,12 +168,12 @@ function vtkOpenGLRenderWindow(publicAPI, model) {
       model.el = el;
       if (model.el) {
         model.el.appendChild(model.canvas);
-      }
 
-      // If the renderer is set to use a background
-      // image, attach it to the DOM.
-      if (model.useBackgroundImage) {
-        model.el.appendChild(model.bgImage);
+        // If the renderer is set to use a background
+        // image, attach it to the DOM.
+        if (model.useBackgroundImage) {
+          model.el.appendChild(model.bgImage);
+        }
       }
 
       // Trigger modified()
@@ -207,6 +215,7 @@ function vtkOpenGLRenderWindow(publicAPI, model) {
   publicAPI.getViewportSize = (viewport) => {
     const vCoords = viewport.getViewportByReference();
     const size = publicAPI.getFramebufferSize();
+
     return [
       (vCoords[2] - vCoords[0]) * size[0],
       (vCoords[3] - vCoords[1]) * size[1],
@@ -228,26 +237,38 @@ function vtkOpenGLRenderWindow(publicAPI, model) {
     return [x * size[0], y * size[1], z];
   };
 
-  publicAPI.worldToView = (x, y, z, renderer) => {
-    const dims = publicAPI.getViewportSize(renderer);
-    return renderer.worldToView(x, y, z, dims[0] / dims[1]);
-  };
+  publicAPI.worldToView = (x, y, z, renderer) => renderer.worldToView(x, y, z);
 
-  publicAPI.viewToWorld = (x, y, z, renderer) => {
-    const dims = publicAPI.getViewportSize(renderer);
-    return renderer.viewToWorld(x, y, z, dims[0] / dims[1]);
-  };
+  publicAPI.viewToWorld = (x, y, z, renderer) => renderer.viewToWorld(x, y, z);
 
   publicAPI.worldToDisplay = (x, y, z, renderer) => {
-    const val = publicAPI.worldToView(x, y, z, renderer);
-    const val2 = renderer.viewToNormalizedDisplay(val[0], val[1], val[2]);
-    return publicAPI.normalizedDisplayToDisplay(val2[0], val2[1], val2[2]);
+    const val = renderer.worldToView(x, y, z);
+    const dims = publicAPI.getViewportSize(renderer);
+    const val2 = renderer.viewToProjection(
+      val[0],
+      val[1],
+      val[2],
+      dims[0] / dims[1]
+    );
+    const val3 = renderer.projectionToNormalizedDisplay(
+      val2[0],
+      val2[1],
+      val2[2]
+    );
+    return publicAPI.normalizedDisplayToDisplay(val3[0], val3[1], val3[2]);
   };
 
   publicAPI.displayToWorld = (x, y, z, renderer) => {
     const val = publicAPI.displayToNormalizedDisplay(x, y, z);
-    const val2 = renderer.normalizedDisplayToView(val[0], val[1], val[2]);
-    return publicAPI.viewToWorld(val2[0], val2[1], val2[2], renderer);
+    const val2 = renderer.normalizedDisplayToProjection(val[0], val[1], val[2]);
+    const dims = publicAPI.getViewportSize(renderer);
+    const val3 = renderer.projectionToView(
+      val2[0],
+      val2[1],
+      val2[2],
+      dims[0] / dims[1]
+    );
+    return renderer.viewToWorld(val3[0], val3[1], val3[2]);
   };
 
   publicAPI.normalizedDisplayToViewport = (x, y, z, renderer) => {

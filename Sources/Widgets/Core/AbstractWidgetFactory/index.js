@@ -45,10 +45,15 @@ function vtkAbstractWidgetFactory(publicAPI, model) {
 
       // Create representations for that view
       /* eslint-disable no-shadow */
+      const widgetInitialValues = initialValues; // Avoid shadowing
       widgetModel.representations = publicAPI
         .getRepresentationsForViewType(viewType)
         .map(({ builder, labels, initialValues }) =>
-          builder.newInstance(Object.assign({ labels }, initialValues))
+          builder.newInstance({
+            labels,
+            ...initialValues,
+            ...widgetInitialValues,
+          })
         );
       /* eslint-enable no-shadow */
 
@@ -60,10 +65,9 @@ function vtkAbstractWidgetFactory(publicAPI, model) {
       });
 
       model.behavior(widgetPublicAPI, widgetModel);
-
       // Forward representation methods
-      if (model.methodsToLink) {
-        model.methodsToLink.forEach((methodName) => {
+      ['coincidentTopologyParameters', ...(model.methodsToLink || [])].forEach(
+        (methodName) => {
           const set = `set${macro.capitalize(methodName)}`;
           const get = `get${macro.capitalize(methodName)}`;
           const methods = {
@@ -91,10 +95,10 @@ function vtkAbstractWidgetFactory(publicAPI, model) {
               widgetPublicAPI[name] = macro.chain(...calls);
             }
           });
-        });
-      }
+        }
+      );
 
-      // Custom delete to detatch from parent
+      // Custom delete to detach from parent
       widgetPublicAPI.delete = macro.chain(() => {
         delete viewToWidget[viewId];
       }, widgetPublicAPI.delete);
@@ -153,13 +157,13 @@ function vtkAbstractWidgetFactory(publicAPI, model) {
   // Event Widget API
   // --------------------------------------------------------------------------
   let unsubscribe = NoOp;
-  publicAPI.delete = macro.chain(publicAPI.delete, unsubscribe);
+  publicAPI.delete = macro.chain(publicAPI.delete, () => unsubscribe());
 
   // Defer after object instantiation so model.widgetState actually exist
   setTimeout(() => {
     unsubscribe = model.widgetState.onModified(() =>
       publicAPI.invokeWidgetChange(model.widgetState)
-    );
+    ).unsubscribe;
   }, 0);
 }
 

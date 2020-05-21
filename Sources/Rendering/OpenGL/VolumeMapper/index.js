@@ -99,6 +99,15 @@ function vtkOpenGLVolumeMapper(publicAPI, model) {
       ).result;
     }
 
+    const vtkImageLabelOutline = actor.getProperty().getUseLabelOutline();
+    if (vtkImageLabelOutline === true) {
+      FSSource = vtkShaderProgram.substitute(
+        FSSource,
+        '//VTK::ImageLabelOutlineOn',
+        '#define vtkImageLabelOutlineOn'
+      ).result;
+    }
+
     const numComp = model.scalarTexture.getComponents();
     FSSource = vtkShaderProgram.substitute(
       FSSource,
@@ -130,6 +139,7 @@ function vtkOpenGLVolumeMapper(publicAPI, model) {
       (ext[3] - ext[2]) * spc[1],
       (ext[5] - ext[4]) * spc[2]
     );
+
     const maxSamples =
       vec3.length(vsize) / model.renderable.getSampleDistance();
 
@@ -407,8 +417,8 @@ function vtkOpenGLVolumeMapper(publicAPI, model) {
   };
 
   publicAPI.setCameraShaderParameters = (cellBO, ren, actor) => {
-    // // [WMVD]C == {world, model, view, display} coordinates
-    // // E.g., WCDC == world to display coordinate transformation
+    // // [WMVP]C == {world, model, view, projection} coordinates
+    // // E.g., WCPC == world to projection coordinate transformation
     const keyMats = model.openGLCamera.getKeyMatrices(ren);
     const actMats = model.openGLVolume.getKeyMatrices();
 
@@ -454,7 +464,7 @@ function vtkOpenGLVolumeMapper(publicAPI, model) {
         vec3.scale(pos, dir, t);
       }
       // now convert to DC
-      vec3.transformMat4(pos, pos, keyMats.vcdc);
+      vec3.transformMat4(pos, pos, keyMats.vcpc);
 
       dcxmin = Math.min(pos[0], dcxmin);
       dcxmax = Math.max(pos[0], dcxmax);
@@ -466,6 +476,10 @@ function vtkOpenGLVolumeMapper(publicAPI, model) {
     program.setUniformf('dcxmax', dcxmax);
     program.setUniformf('dcymin', dcymin);
     program.setUniformf('dcymax', dcymax);
+
+    if (program.isUniformUsed('cameraParallel')) {
+      program.setUniformi('cameraParallel', cam.getParallelProjection());
+    }
 
     const ext = model.currentInput.getExtent();
     const spc = model.currentInput.getSpacing();
@@ -509,7 +523,9 @@ function vtkOpenGLVolumeMapper(publicAPI, model) {
         Please either change the
         volumeMapper sampleDistance or its maximum number of samples.`);
     }
+
     const vctoijk = vec3.create();
+
     vec3.set(vctoijk, 1.0, 1.0, 1.0);
     vec3.divide(vctoijk, vctoijk, vsize);
     program.setUniform3f('vVCToIJK', vctoijk[0], vctoijk[1], vctoijk[2]);
@@ -564,10 +580,26 @@ function vtkOpenGLVolumeMapper(publicAPI, model) {
       // specify the planes in view coordinates
       program.setUniform3f(`vPlaneNormal${i}`, normal[0], normal[1], normal[2]);
       program.setUniformf(`vPlaneDistance${i}`, dist);
+
+      if (actor.getProperty().getUseLabelOutline()) {
+        const image = model.currentInput;
+        const worldToIndex = image.getWorldToIndex();
+
+        program.setUniformMatrix('vWCtoIDX', worldToIndex);
+
+        // Get the projection coordinate to world coordinate transformation matrix.
+        mat4.invert(model.projectionToWorld, keyMats.wcpc);
+        program.setUniformMatrix('PCWCMatrix', model.projectionToWorld);
+
+        const size = publicAPI.getRenderTargetSize();
+
+        program.setUniformf('vpWidth', size[0]);
+        program.setUniformf('vpHeight', size[1]);
+      }
     }
 
-    mat4.invert(model.displayToView, keyMats.vcdc);
-    program.setUniformMatrix('DCVCMatrix', model.displayToView);
+    mat4.invert(model.projectionToView, keyMats.vcpc);
+    program.setUniformMatrix('PCVCMatrix', model.projectionToView);
 
     // handle lighting values
     switch (model.lastLightComplexity) {
@@ -629,21 +661,17 @@ function vtkOpenGLVolumeMapper(publicAPI, model) {
     const numComp = model.scalarTexture.getComponents();
     const iComps = actor.getProperty().getIndependentComponents();
     if (iComps && numComp >= 2) {
-      let totalComp = 0.0;
-      for (let i = 0; i < numComp; ++i) {
-        totalComp += actor.getProperty().getComponentWeight(i);
-      }
-      for (let i = 0; i < numComp; ++i) {
+      for (let i = 0; i < numComp; i++) {
         program.setUniformf(
           `mix${i}`,
-          actor.getProperty().getComponentWeight(i) / totalComp
+          actor.getProperty().getComponentWeight(i)
         );
       }
     }
 
     // three levels of shift scale combined into one
     // for performance in the fragment shader
-    for (let i = 0; i < numComp; ++i) {
+    for (let i = 0; i < numComp; i++) {
       const target = iComps ? i : 0;
       const sscale = volInfo.scale[i];
       const ofun = vprop.getScalarOpacity(target);
@@ -713,6 +741,15 @@ function vtkOpenGLVolumeMapper(publicAPI, model) {
       }
     }
 
+    const vtkImageLabelOutline = actor.getProperty().getUseLabelOutline();
+    if (vtkImageLabelOutline === true) {
+      const labelOutlineThickness = actor
+        .getProperty()
+        .getLabelOutlineThickness();
+
+      program.setUniformi('outlineThickness', labelOutlineThickness);
+    }
+
     if (model.lastLightComplexity > 0) {
       program.setUniformf('vAmbient', vprop.getAmbient());
       program.setUniformf('vDiffuse', vprop.getDiffuse());
@@ -742,12 +779,7 @@ function vtkOpenGLVolumeMapper(publicAPI, model) {
       model.avgWindowArea =
         0.97 * model.avgWindowArea + 0.03 / (model.lastXYF * model.lastXYF);
 
-      if (
-        ren
-          .getVTKWindow()
-          .getInteractor()
-          .isAnimating()
-      ) {
+      if (ren.getVTKWindow().getInteractor().isAnimating()) {
         // compute target xy factor
         let txyf = Math.sqrt(
           (model.avgFrameTime * rwi.getDesiredUpdateRate()) /
@@ -896,7 +928,7 @@ function vtkOpenGLVolumeMapper(publicAPI, model) {
     }
 
     if (model.lastXYF > 1.43) {
-      // now copy the frambuffer with the volume into the
+      // now copy the framebuffer with the volume into the
       // regular buffer
       model.framebuffer.restorePreviousBindingsAndBuffers();
 
@@ -1051,10 +1083,7 @@ function vtkOpenGLVolumeMapper(publicAPI, model) {
       );
     }
 
-    const numComp = image
-      .getPointData()
-      .getScalars()
-      .getNumberOfComponents();
+    const numComp = image.getPointData().getScalars().getNumberOfComponents();
     const iComps = vprop.getIndependentComponents();
     const numIComps = iComps ? numComp : 1;
 
@@ -1162,14 +1191,8 @@ function vtkOpenGLVolumeMapper(publicAPI, model) {
         dims[1],
         dims[2],
         numComp,
-        image
-          .getPointData()
-          .getScalars()
-          .getDataType(),
-        image
-          .getPointData()
-          .getScalars()
-          .getData()
+        image.getPointData().getScalars().getDataType(),
+        image.getPointData().getScalars().getData()
       );
       // console.log(model.scalarTexture.get());
       model.scalarTextureString = toString;
@@ -1266,7 +1289,7 @@ const DEFAULT_VALUES = {
   idxToView: null,
   idxNormalMatrix: null,
   modelToView: null,
-  displayToView: null,
+  projectionToView: null,
   avgWindowArea: 0.0,
   avgFrameTime: 0.0,
 };
@@ -1294,7 +1317,8 @@ export function extend(publicAPI, model, initialValues = {}) {
   model.idxToView = mat4.create();
   model.idxNormalMatrix = mat3.create();
   model.modelToView = mat4.create();
-  model.displayToView = mat4.create();
+  model.projectionToView = mat4.create();
+  model.projectionToWorld = mat4.create();
 
   // Build VTK API
   macro.setGet(publicAPI, model, ['context']);

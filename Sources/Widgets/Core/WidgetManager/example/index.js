@@ -2,6 +2,7 @@ import 'vtk.js/Sources/favicon';
 
 import vtkFullScreenRenderWindow from 'vtk.js/Sources/Rendering/Misc/FullScreenRenderWindow';
 import vtkWidgetManager from 'vtk.js/Sources/Widgets/Core/WidgetManager';
+import WidgetManagerConstants from 'vtk.js/Sources/Widgets/Core/WidgetManager/Constants';
 
 import vtkActor from 'vtk.js/Sources/Rendering/Core/Actor';
 import vtkConeSource from 'vtk.js/Sources/Filters/Sources/ConeSource';
@@ -12,6 +13,8 @@ import vtkImplicitPlaneWidget from 'vtk.js/Sources/Widgets/Widgets3D/ImplicitPla
 import vtkPolyLineWidget from 'vtk.js/Sources/Widgets/Widgets3D/PolyLineWidget';
 
 import controlPanel from './controlPanel.html';
+
+const { CaptureOn } = WidgetManagerConstants;
 
 const WIDGET_BUILDERS = {
   Box(widgetManager) {
@@ -28,6 +31,20 @@ const WIDGET_BUILDERS = {
         label: 'Polyline',
       })
     );
+    instance.setCoincidentTopologyParameters({
+      Point: {
+        factor: -1.0,
+        offset: -1.0,
+      },
+      Line: {
+        factor: -1.5,
+        offset: -1.5,
+      },
+      Polygon: {
+        factor: -2.0,
+        offset: -2.0,
+      },
+    });
     instance.setActiveScaleFactor(0.9);
     instance.setGlyphResolution(60);
     return instance;
@@ -36,7 +53,24 @@ const WIDGET_BUILDERS = {
     const instance = widgetManager.addWidget(
       vtkPolyLineWidget.newInstance({
         label: 'Closed Polyline',
-      })
+      }),
+      null,
+      {
+        coincidentTopologyParameters: {
+          Point: {
+            factor: -1.0,
+            offset: -1.0,
+          },
+          Line: {
+            factor: -1.5,
+            offset: -1.5,
+          },
+          Polygon: {
+            factor: -2.0,
+            offset: -2.0,
+          },
+        },
+      }
     );
     instance.setActiveScaleFactor(1.1);
     instance.setGlyphResolution(30);
@@ -76,6 +110,7 @@ renderWindow.render();
 // ----------------------------------------------------------------------------
 
 const widgetManager = vtkWidgetManager.newInstance();
+widgetManager.setCaptureOn(CaptureOn.MOUSE_RELEASE); // default
 widgetManager.setRenderer(renderer);
 
 // -----------------------------------------------------------

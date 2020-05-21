@@ -1,12 +1,14 @@
 import macro from 'vtk.js/Sources/macro';
 import vtkOpenGLHardwareSelector from 'vtk.js/Sources/Rendering/OpenGL/HardwareSelector';
 import { FieldAssociations } from 'vtk.js/Sources/Common/DataModel/DataSet/Constants';
-import WMConstants from 'vtk.js/Sources/Widgets/Core/WidgetManager/Constants';
+import Constants from 'vtk.js/Sources/Widgets/Core/WidgetManager/Constants';
 import vtkSVGRepresentation from 'vtk.js/Sources/Widgets/SVG/SVGRepresentation';
 
-const { ViewTypes, RenderingTypes } = WMConstants;
+import { diff } from './vdom';
+
+const { ViewTypes, RenderingTypes, CaptureOn } = Constants;
 const { vtkErrorMacro } = macro;
-const { createSvgElement } = vtkSVGRepresentation;
+const { createSvgElement, createSvgDomElement } = vtkSVGRepresentation;
 
 let viewIdCount = 1;
 
@@ -25,20 +27,15 @@ export function extractRenderingComponents(renderer) {
 // ----------------------------------------------------------------------------
 
 function createSvgRoot(id) {
-  const wrapper = document.createElement('div');
-  wrapper.setAttribute(
+  const svgRoot = createSvgDomElement('svg');
+  svgRoot.setAttribute(
     'style',
     'position: absolute; top: 0; left: 0; width: 100%; height: 100%;'
   );
-
-  const svgRoot = createSvgElement('svg');
-  svgRoot.setAttribute('style', 'width: 100%; height: 100%;');
   svgRoot.setAttribute('version', '1.1');
   svgRoot.setAttribute('baseProfile', 'full');
 
-  wrapper.appendChild(svgRoot);
-
-  return { svgWrapper: wrapper, svgRoot };
+  return svgRoot;
 }
 
 // ----------------------------------------------------------------------------
@@ -52,6 +49,7 @@ function vtkWidgetManager(publicAPI, model) {
   model.classHierarchy.push('vtkWidgetManager');
   const propsWeakMap = new WeakMap();
   const widgetToSvgMap = new WeakMap();
+  const svgVTrees = new WeakMap();
   const subscriptions = [];
 
   // --------------------------------------------------------------------------
@@ -63,9 +61,7 @@ function vtkWidgetManager(publicAPI, model) {
     FieldAssociations.FIELD_ASSOCIATION_POINTS
   );
 
-  const svgContainers = createSvgRoot(model.viewId);
-  model.svgWrapper = svgContainers.svgWrapper;
-  model.svgRoot = svgContainers.svgRoot;
+  model.svgRoot = createSvgRoot(model.viewId);
 
   // --------------------------------------------------------------------------
   // API internal
@@ -100,75 +96,94 @@ function vtkWidgetManager(publicAPI, model) {
   function enableSvgLayer() {
     const container = model.openGLRenderWindow.getReferenceByName('el');
     const canvas = model.openGLRenderWindow.getCanvas();
-    container.insertBefore(model.svgWrapper, canvas.nextSibling);
+    container.insertBefore(model.svgRoot, canvas.nextSibling);
+    const containerStyles = window.getComputedStyle(container);
+    if (containerStyles.position === 'static') {
+      container.style.position = 'relative';
+    }
   }
 
   function disableSvgLayer() {
     const container = model.openGLRenderWindow.getReferenceByName('el');
-    container.removeChild(model.svgWrapper);
-  }
-
-  function addToSvgLayer(viewWidget) {
-    const svgReps = viewWidget
-      .getRepresentations()
-      .filter((r) => r.isA('vtkSVGRepresentation'));
-
-    if (svgReps.length) {
-      // group element to hold all elements of the widget
-      const widgetGroup = createSvgElement('g');
-
-      model.svgRoot.appendChild(widgetGroup);
-      widgetToSvgMap.set(viewWidget, widgetGroup);
-    }
+    container.removeChild(model.svgRoot);
   }
 
   function removeFromSvgLayer(viewWidget) {
     const group = widgetToSvgMap.get(viewWidget);
     if (group) {
-      model.svgRoot.removeChild(group);
       widgetToSvgMap.delete(viewWidget);
+      svgVTrees.delete(viewWidget);
+      model.svgRoot.removeChild(group);
+    }
+  }
+
+  function setSvgSize() {
+    const [cwidth, cheight] = model.openGLRenderWindow.getSize();
+    const ratio = window.devicePixelRatio || 1;
+    const bwidth = String(cwidth / ratio);
+    const bheight = String(cheight / ratio);
+    const viewBox = `0 0 ${cwidth} ${cheight}`;
+
+    const origWidth = model.svgRoot.getAttribute('width');
+    const origHeight = model.svgRoot.getAttribute('height');
+    const origViewBox = model.svgRoot.getAttribute('viewBox');
+
+    if (origWidth !== bwidth) {
+      model.svgRoot.setAttribute('width', bwidth);
+    }
+    if (origHeight !== bheight) {
+      model.svgRoot.setAttribute('height', bheight);
+    }
+    if (origViewBox !== viewBox) {
+      model.svgRoot.setAttribute('viewBox', viewBox);
     }
   }
 
   function updateSvg() {
     if (model.useSvgLayer) {
-      const [cwidth, cheight] = model.openGLRenderWindow.getSize();
-      const ratio = window.devicePixelRatio || 1;
-      const bwidth = cwidth / ratio;
-      const bheight = cheight / ratio;
-      const viewBox = `0 0 ${cwidth} ${cheight}`;
-      model.svgRoot.setAttribute('width', bwidth);
-      model.svgRoot.setAttribute('height', bheight);
-      model.svgRoot.setAttribute('viewBox', viewBox);
-
       for (let i = 0; i < model.widgets.length; i++) {
         const widget = model.widgets[i];
         const svgReps = widget
           .getRepresentations()
           .filter((r) => r.isA('vtkSVGRepresentation'));
 
-        if (widget.getVisibility() && svgReps.length) {
-          const pendingContent = svgReps
+        let pendingContent = [];
+        if (widget.getVisibility()) {
+          pendingContent = svgReps
             .filter((r) => r.getVisibility())
             .map((r) => r.render());
-          Promise.all(pendingContent).then((nodes) => {
-            const g = widgetToSvgMap.get(widget);
-            if (g) {
-              const newG = createSvgElement('g');
-              for (let ni = 0; ni < nodes.length; ni++) {
-                newG.appendChild(nodes[ni]);
-              }
-              if (g.innerHTML !== newG.innerHTML) {
-                g.innerHTML = newG.innerHTML;
-              }
-            }
-          });
-        } else {
-          const g = widgetToSvgMap.get(widget);
-          if (g) {
-            g.innerHTML = '';
-          }
         }
+
+        Promise.all(pendingContent).then((vnodes) => {
+          if (model.deleted) {
+            return;
+          }
+          const oldVTree = svgVTrees.get(widget);
+          const newVTree = createSvgElement('g');
+          for (let ni = 0; ni < vnodes.length; ni++) {
+            newVTree.appendChild(vnodes[ni]);
+          }
+
+          const widgetGroup = widgetToSvgMap.get(widget);
+          let node = widgetGroup;
+
+          const patchFns = diff(oldVTree, newVTree);
+          for (let j = 0; j < patchFns.length; j++) {
+            node = patchFns[j](node);
+          }
+
+          if (!widgetGroup && node) {
+            // add
+            model.svgRoot.appendChild(node);
+            widgetToSvgMap.set(widget, node);
+          } else if (widgetGroup && !node) {
+            // delete
+            widgetGroup.remove();
+            widgetToSvgMap.delete(widget);
+          }
+
+          svgVTrees.set(widget, newVTree);
+        });
       }
     }
   }
@@ -181,23 +196,40 @@ function vtkWidgetManager(publicAPI, model) {
     w.updateRepresentationForRender(model.renderingType);
   }
 
-  publicAPI.enablePicking = () => {
-    model.pickingEnabled = true;
-
+  function renderPickingBuffer() {
     model.renderingType = RenderingTypes.PICKING_BUFFER;
     model.widgets.forEach(updateWidgetForRender);
+  }
 
-    console.time('capture');
-    const [w, h] = model.openGLRenderWindow.getSize();
-    model.selector.setArea(0, 0, w, h);
-    model.selector.releasePixBuffers();
-    model.pickingAvailable = model.selector.captureBuffers();
-    model.previousSelectedData = null;
-    console.timeEnd('capture');
-    publicAPI.modified();
-
+  function renderFrontBuffer() {
     model.renderingType = RenderingTypes.FRONT_BUFFER;
     model.widgets.forEach(updateWidgetForRender);
+  }
+
+  function captureBuffers(x1, y1, x2, y2) {
+    renderPickingBuffer();
+
+    model.selector.setArea(x1, y1, x2, y2);
+    model.selector.releasePixBuffers();
+
+    model.previousSelectedData = null;
+    return model.selector.captureBuffers();
+  }
+
+  publicAPI.enablePicking = () => {
+    model.pickingEnabled = true;
+    model.pickingAvailable = true;
+    publicAPI.renderWidgets();
+  };
+
+  publicAPI.renderWidgets = () => {
+    if (model.pickingEnabled && model.captureOn === CaptureOn.MOUSE_RELEASE) {
+      const [w, h] = model.openGLRenderWindow.getSize();
+      model.pickingAvailable = captureBuffers(0, 0, w, h);
+    }
+
+    renderFrontBuffer();
+    publicAPI.modified();
   };
 
   publicAPI.disablePicking = () => {
@@ -215,13 +247,17 @@ function vtkWidgetManager(publicAPI, model) {
 
     subscriptions.push(model.interactor.onRenderEvent(updateSvg));
 
+    subscriptions.push(model.openGLRenderWindow.onModified(setSvgSize));
+    setSvgSize();
+
     subscriptions.push(
       model.interactor.onStartAnimation(() => {
-        model.pickingAvailable = false;
+        model.isAnimating = true;
       })
     );
     subscriptions.push(
       model.interactor.onEndAnimation(() => {
+        model.isAnimating = false;
         if (model.pickingEnabled) {
           publicAPI.enablePicking();
         }
@@ -230,13 +266,10 @@ function vtkWidgetManager(publicAPI, model) {
 
     subscriptions.push(
       model.interactor.onMouseMove(({ position }) => {
-        if (!model.pickingAvailable) {
+        if (model.isAnimating || !model.pickingAvailable) {
           return;
         }
-        publicAPI.updateSelectionFromXY(
-          Math.round(position.x),
-          Math.round(position.y)
-        );
+        publicAPI.updateSelectionFromXY(position.x, position.y);
         const {
           requestCount,
           selectedState,
@@ -308,9 +341,6 @@ function vtkWidgetManager(publicAPI, model) {
       // Register to renderer
       model.renderer.addActor(w);
 
-      // register widget to svg layer
-      addToSvgLayer(w);
-
       publicAPI.modified();
     }
 
@@ -323,10 +353,7 @@ function vtkWidgetManager(publicAPI, model) {
     if (index !== -1) {
       model.widgets.splice(index, 1);
       model.renderer.removeActor(viewWidget);
-      model.renderer
-        .getRenderWindow()
-        .getInteractor()
-        .render();
+      model.renderer.getRenderWindow().getInteractor().render();
       publicAPI.enablePicking();
 
       removeFromSvgLayer(viewWidget);
@@ -341,8 +368,17 @@ function vtkWidgetManager(publicAPI, model) {
   };
 
   publicAPI.updateSelectionFromXY = (x, y) => {
-    if (model.pickingAvailable) {
-      model.selections = model.selector.generateSelection(x, y, x, y);
+    if (model.pickingEnabled) {
+      let pickingAvailable = model.pickingAvailable;
+
+      if (model.captureOn === CaptureOn.MOUSE_MOVE) {
+        pickingAvailable = captureBuffers(x, y, x, y);
+        renderFrontBuffer();
+      }
+
+      if (pickingAvailable) {
+        model.selections = model.selector.generateSelection(x, y, x, y);
+      }
     }
   };
 
@@ -426,6 +462,14 @@ function vtkWidgetManager(publicAPI, model) {
     }
     return false;
   };
+
+  const superDelete = publicAPI.delete;
+  publicAPI.delete = () => {
+    while (subscriptions.length) {
+      subscriptions.pop().unsubscribe();
+    }
+    superDelete();
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -438,11 +482,13 @@ const DEFAULT_VALUES = {
   renderer: [],
   viewType: ViewTypes.DEFAULT,
   pickingAvailable: false,
+  isAnimating: false,
   pickingEnabled: true,
   selections: null,
   previousSelectedData: null,
   widgetInFocus: null,
   useSvgLayer: true,
+  captureOn: CaptureOn.MOUSE_MOVE,
 };
 
 // ----------------------------------------------------------------------------
@@ -452,6 +498,7 @@ export function extend(publicAPI, model, initialValues = {}) {
 
   macro.obj(publicAPI, model);
   macro.setGet(publicAPI, model, [
+    'captureOn',
     { type: 'enum', name: 'viewType', enum: ViewTypes },
   ]);
   macro.get(publicAPI, model, [
@@ -472,4 +519,4 @@ export const newInstance = macro.newInstance(extend, 'vtkWidgetManager');
 
 // ----------------------------------------------------------------------------
 
-export default { newInstance, extend };
+export default { newInstance, extend, Constants };

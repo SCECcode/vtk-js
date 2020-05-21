@@ -71,15 +71,17 @@ function processDataSet(
 
   fieldDataLocations.forEach((location) => {
     if (dataset[location]) {
-      dataset[location].arrays.map((i) => i.data).forEach((array) => {
-        model.arrays.push({
-          name: array.name,
-          enable,
-          location,
-          array,
-          registration: array.ref.registration || 'addArray',
+      dataset[location].arrays
+        .map((i) => i.data)
+        .forEach((array) => {
+          model.arrays.push({
+            name: array.name,
+            enable,
+            location,
+            array,
+            registration: array.ref.registration || 'addArray',
+          });
         });
-      });
 
       // Reset data arrays
       dataset[location].arrays = [];
@@ -241,9 +243,11 @@ function vtkHttpDataSetReader(publicAPI, model) {
             progressCallback,
           }).then(processNext, error);
         } else if (datasetObj) {
-          // Perform array registration
+          // Perform array registration on new arrays
           model.arrays
-            .filter((array) => array.registration)
+            .filter(
+              (metaArray) => metaArray.registration && !metaArray.array.ref
+            )
             .forEach((metaArray) => {
               const newArray = ARRAY_BUILDERS[
                 metaArray.array.vtkClass

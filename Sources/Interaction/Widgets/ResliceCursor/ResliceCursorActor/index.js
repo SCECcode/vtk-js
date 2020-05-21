@@ -16,7 +16,7 @@ function vtkResliceCursorActor(publicAPI, model) {
   // Set our className
   model.classHierarchy.push('vtkResliceCursorActor');
 
-  const superClass = Object.assign({}, publicAPI);
+  const superClass = { ...publicAPI };
 
   publicAPI.getActors = () => {
     if (model.cursorAlgorithm.getResliceCursor()) {
@@ -47,14 +47,6 @@ function vtkResliceCursorActor(publicAPI, model) {
     model.cursorCenterlineActor[axis1].setVisibility(model.visibility);
     model.cursorCenterlineActor[axis2].setVisibility(model.visibility);
     model.cursorCenterlineActor[axisNormal].setVisibility(0);
-
-    model.cursorCenterlineActor[axis1]
-      .getProperty()
-      .setEdgeVisibility(model.visibility);
-    model.cursorCenterlineActor[axis2]
-      .getProperty()
-      .setEdgeVisibility(model.visibility);
-    model.cursorCenterlineActor[axisNormal].getProperty().setEdgeVisibility(0);
   };
 
   publicAPI.getBounds = () => {
@@ -137,10 +129,12 @@ export function extend(publicAPI, model, initialValues = {}) {
   for (let i = 0; i < 3; i++) {
     model.cursorCenterlineMapper[i] = vtkMapper.newInstance();
     model.cursorCenterlineMapper[i].setScalarVisibility(false);
-    model.cursorCenterlineMapper[i].setResolveCoincidentTopology(true);
     model.cursorCenterlineMapper[
       i
-    ].setResolveCoincidentTopologyPolygonOffsetParameters(-1, -1);
+    ].setResolveCoincidentTopologyToPolygonOffset();
+    model.cursorCenterlineMapper[
+      i
+    ].setResolveCoincidentTopologyLineOffsetParameters(-1.0, -1.0);
 
     model.cursorCenterlineActor[i] = vtkActor.newInstance();
     model.cursorCenterlineActor[i].setMapper(model.cursorCenterlineMapper[i]);
@@ -152,14 +146,6 @@ export function extend(publicAPI, model, initialValues = {}) {
   model.centerlineProperty[0].setColor(1, 0, 0);
   model.centerlineProperty[1].setColor(0, 1, 0);
   model.centerlineProperty[2].setColor(0, 0, 1);
-
-  model.centerlineProperty[0].setEdgeColor(1, 0, 0);
-  model.centerlineProperty[1].setEdgeColor(0, 1, 0);
-  model.centerlineProperty[2].setEdgeColor(0, 0, 1);
-
-  model.centerlineProperty[0].setEdgeVisibility(1);
-  model.centerlineProperty[1].setEdgeVisibility(1);
-  model.centerlineProperty[2].setEdgeVisibility(1);
 
   macro.get(publicAPI, model, ['cursorAlgorithm']);
 
